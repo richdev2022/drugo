@@ -3,6 +3,7 @@ const CryptoJS = require('crypto-js');
 const { User, Product, Doctor, Order, OrderItem, Appointment } = require('../models');
 const { encryptData } = require('./security');
 const { isValidEmail, isValidPhoneNumber, sanitizeInput } = require('../utils/validation');
+const { uploadImageFromUrl } = require('./cloudinary');
 
 // Drugs.ng API client with timeout
 const drugsngAPI = axios.create({
@@ -12,6 +13,27 @@ const drugsngAPI = axios.create({
   },
   timeout: 10000 // 10 second timeout
 });
+
+const generatePlaceholderUrl = (name) => {
+  const text = encodeURIComponent((name || 'Medicine').substring(0, 20));
+  return `https://via.placeholder.com/512x512.png?text=${text}`;
+};
+
+const ensureDbProductHasImage = async (product) => {
+  if (product.imageUrl) return product.imageUrl;
+  try {
+    const uploaded = await uploadImageFromUrl(generatePlaceholderUrl(product.name), {
+      folder: 'drugs-ng/products/medicines',
+      filename: `product-${product.id}-${Date.now()}`
+    });
+    product.imageUrl = uploaded.url;
+    await product.save();
+    return product.imageUrl;
+  } catch (e) {
+    console.warn('Placeholder upload failed:', e.message);
+    return null;
+  }
+};
 
 // Register new user in both PostgreSQL and Drugs.ng API
 const registerUser = async (userData) => {
@@ -150,6 +172,55 @@ const loginUser = async (credentials) => {
   }
 };
 
+// List all products with pagination
+const listAllProductsPaginated = async (page = 1, pageSize = 5) => {
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safeSize = Math.min(20, Math.max(1, parseInt(pageSize, 10) || 5));
+
+  // Try Drugs.ng API first
+  try {
+    const response = await drugsngAPI.get('/products', {
+      params: { page: safePage, limit: safeSize }
+    });
+    const items = Array.isArray(response.data?.products) ? response.data.products : (Array.isArray(response.data) ? response.data : []);
+    const total = response.data?.total || items.length;
+    const totalPages = response.data?.totalPages || Math.max(1, Math.ceil(total / safeSize));
+    return { items, total, totalPages, page: safePage, pageSize: safeSize, source: 'api' };
+  } catch (apiError) {
+    console.warn('Drugs.ng API list failed, using local DB:', apiError.message);
+  }
+
+  // Fallback to PostgreSQL
+  const { Op } = require('sequelize');
+  const offset = (safePage - 1) * safeSize;
+  const { rows, count } = await Product.findAndCountAll({
+    where: { isActive: true },
+    order: [['id', 'ASC']],
+    offset,
+    limit: safeSize
+  });
+
+  // Ensure images for DB items
+  for (const p of rows) {
+    if (!p.imageUrl) {
+      await ensureDbProductHasImage(p);
+    }
+  }
+
+  const items = rows.map(p => ({
+    id: p.id,
+    name: p.name,
+    category: p.category,
+    description: p.description,
+    price: p.price,
+    stock: p.stock,
+    imageUrl: p.imageUrl
+  }));
+  const total = count;
+  const totalPages = Math.max(1, Math.ceil(total / safeSize));
+  return { items, total, totalPages, page: safePage, pageSize: safeSize, source: 'db' };
+};
+
 // Search products
 const searchProducts = async (query) => {
   try {
@@ -187,6 +258,13 @@ const searchProducts = async (query) => {
         },
         limit: 10
       });
+
+      // Ensure images for DB items
+      for (const p of products) {
+        if (!p.imageUrl) {
+          await ensureDbProductHasImage(p);
+        }
+      }
 
       return products.map(product => ({
         id: product.id,
@@ -433,6 +511,7 @@ const bookAppointment = async (userId, doctorId, dateTime) => {
 module.exports = {
   registerUser,
   loginUser,
+  listAllProductsPaginated,
   searchProducts,
   addToCart,
   placeOrder,

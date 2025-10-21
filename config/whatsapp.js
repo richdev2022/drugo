@@ -2,12 +2,19 @@ const axios = require('axios');
 
 // WhatsApp API configuration
 const whatsappAPI = axios.create({
-  baseURL: 'https://graph.facebook.com/v15.0',
+  baseURL: 'https://graph.facebook.com/v20.0',
   headers: {
     'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
     'Content-Type': 'application/json'
-  }
+  },
+  timeout: 15000
 });
+
+const isPermissionError = (error) => {
+  const code = error?.response?.data?.error?.code;
+  const message = error?.response?.data?.error?.message || '';
+  return code === 10 || /does not have permission/i.test(message);
+};
 
 // Send message via WhatsApp
 const sendWhatsAppMessage = async (phoneNumber, message) => {
@@ -24,12 +31,17 @@ const sendWhatsAppMessage = async (phoneNumber, message) => {
     console.log(`✅ Message sent successfully to ${phoneNumber}. Message ID:`, response.data.messages?.[0]?.id);
     return response.data;
   } catch (error) {
-    console.error(`❌ Error sending WhatsApp message to ${phoneNumber}:`, {
+    const log = {
       status: error.response?.status,
       statusText: error.response?.statusText,
       data: error.response?.data,
       message: error.message
-    });
+    };
+    if (isPermissionError(error)) {
+      console.error(`❌ WhatsApp permission error when sending to ${phoneNumber}:`, log);
+    } else {
+      console.error(`❌ Error sending WhatsApp message to ${phoneNumber}:`, log);
+    }
     throw error;
   }
 };
@@ -58,7 +70,7 @@ const sendInteractiveMessage = async (phoneNumber, bodyText, buttons) => {
     });
     return response.data;
   } catch (error) {
-    console.error('Error sending interactive message:', error);
+    console.error('Error sending interactive message:', error.response?.data || error.message);
     throw error;
   }
 };
@@ -73,7 +85,7 @@ const markMessageAsRead = async (messageId) => {
     });
     return response.data;
   } catch (error) {
-    console.error('Error marking message as read:', error);
+    console.error('Error marking message as read:', error.response?.data || error.message);
     // Don't throw error, just log it
     return null;
   }
@@ -119,5 +131,6 @@ module.exports = {
   sendInteractiveMessage,
   markMessageAsRead,
   getMediaInfo,
-  downloadMedia
+  downloadMedia,
+  isPermissionError
 };

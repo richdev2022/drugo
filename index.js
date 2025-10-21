@@ -6,11 +6,13 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const { sequelize, initializeDatabase } = require('./models');
-const { sendWhatsAppMessage, markMessageAsRead, getMediaInfo, downloadMedia } = require('./config/whatsapp');
+const { sendWhatsAppMessage, markMessageAsRead, getMediaInfo, downloadMedia, isPermissionError } = require('./config/whatsapp');
+const adminService = require('./services/admin');
 const { processMessage, formatResponseWithOptions } = require('./services/nlp');
 const {
   registerUser,
   loginUser,
+  listAllProductsPaginated,
   searchProducts,
   addToCart,
   placeOrder,
@@ -95,6 +97,126 @@ async function startServer() {
     process.exit(1);
   }
 }
+
+// Admin auth middleware
+const adminAuthMiddleware = async (req, res, next) => {
+  try {
+    const auth = req.headers.authorization || '';
+    const token = auth.replace(/^Bearer\s+/i, '') || null;
+    if (!token) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const admin = await adminService.verifyAdminToken(token);
+    if (!admin) return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    req.admin = admin;
+    next();
+  } catch (error) {
+    console.error('Admin auth error:', error);
+    return res.status(500).json({ success: false, message: 'Auth failed' });
+  }
+};
+
+// Admin endpoints
+app.post('/api/admin/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const result = await adminService.adminLogin(email, password);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Admin login error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/admin/request-reset', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const result = await adminService.requestAdminPasswordResetOTP(email);
+    res.json(result);
+  } catch (error) {
+    console.error('Admin request reset error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/admin/verify-reset', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const result = await adminService.verifyAdminPasswordResetOTP(email, otp);
+    res.json(result);
+  } catch (error) {
+    console.error('Admin verify reset error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/admin/reset-password', async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    const result = await adminService.completeAdminPasswordReset(email, otp, newPassword);
+    res.json(result);
+  } catch (error) {
+    console.error('Admin reset password error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Protected admin management routes (require adminAuthMiddleware)
+app.post('/api/admin/staff', adminAuthMiddleware, async (req, res) => {
+  try {
+    const data = req.body;
+    const result = await adminService.createStaff(data, req.admin);
+    res.json(result);
+  } catch (error) {
+    console.error('Create staff error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const result = await adminService.fetchTable(table, req.query);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Admin fetch table error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const created = await adminService.addRecord(table, req.body);
+    res.json({ success: true, data: created });
+  } catch (error) {
+    console.error('Admin add record error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.put('/api/admin/:table/:id', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const id = req.params.id;
+    const updated = await adminService.updateRecord(table, id, req.body);
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    console.error('Admin update record error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.delete('/api/admin/:table/:id', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const id = req.params.id;
+    const result = await adminService.deleteRecord(table, id);
+    res.json(result);
+  } catch (error) {
+    console.error('Admin delete record error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
 
 // Root endpoint for status check
 app.get('/', (req, res) => {
@@ -870,9 +992,24 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
 
     // Check if in support chat
   if (session.state === 'SUPPORT_CHAT') {
-    console.log(`💬 ${phoneNumber} is in support chat, forwarding message`);
-    // Forward message to support team
-    await sendSupportMessage(phoneNumber, messageText, true);
+    console.log(`💬 ${phoneNumber} is in support chat`);
+
+    // Allow user to close chat manually
+    if (/^(close|exit|end chat|stop support)$/i.test(messageText.trim())) {
+      await endSupportChat(phoneNumber);
+      await sendWhatsAppMessage(phoneNumber, 'Exited support chat. You are now back with the bot. Type "help" to continue.');
+      return;
+    }
+
+    try {
+      await sendSupportMessage(phoneNumber, messageText, true);
+    } catch (err) {
+      console.error('Forward to support failed:', err.message);
+      try {
+        await endSupportChat(phoneNumber);
+        await sendWhatsAppMessage(phoneNumber, 'Support chat is unavailable right now. You are back with the bot. Type "help" for options.');
+      } catch (_) {}
+    }
     return;
   }
 
@@ -892,6 +1029,34 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
       return;
     } else {
       await sendWhatsAppMessage(phoneNumber, 'No prescription file is pending.\n\nPlease send an image or PDF of your prescription first. Supported types: JPG, PNG, WEBP, GIF, PDF.\n\nTip: Add a caption with your Order ID to auto-attach, e.g. rx 12345 (also accepts "order 12345" or "prescription 12345"). If you don’t know your Order ID, check your order confirmation message or type "support" for help.');
+      return;
+    }
+  }
+
+  // Pagination navigation for products list
+  if (session.data && session.data.productPagination) {
+    const nav = messageText.trim().toLowerCase();
+    const { currentPage, totalPages, pageSize } = session.data.productPagination;
+    let targetPage = null;
+    if (nav === 'next' && currentPage < totalPages) targetPage = currentPage + 1;
+    if (nav === 'previous' && currentPage > 1) targetPage = currentPage - 1;
+    const numMatch = messageText.trim().match(/^\d+$/);
+    if (!targetPage && numMatch) {
+      const n = parseInt(numMatch[0], 10);
+      if (n >= 1 && n <= totalPages) targetPage = n;
+    }
+    if (targetPage) {
+      const pageData = await listAllProductsPaginated(targetPage, pageSize);
+      session.data.productPagination = {
+        currentPage: pageData.page,
+        totalPages: pageData.totalPages,
+        pageSize: pageData.pageSize
+      };
+      session.data.productPageItems = pageData.items;
+      await session.save();
+      const isLoggedIn = session.state === 'LOGGED_IN';
+      const msg = buildProductListMessage(pageData.items, pageData.page, pageData.totalPages);
+      await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
       return;
     }
   }
@@ -1320,9 +1485,20 @@ const handleProductSearch = async (phoneNumber, session, parameters) => {
   try {
     const isLoggedIn = session.state === 'LOGGED_IN';
 
+    // If no specific query, list all medicines with pagination first
     if (!parameters.product) {
-      const msg = formatResponseWithOptions("What medicine or product are you looking for? Please provide a name or category.", isLoggedIn);
-      await sendWhatsAppMessage(phoneNumber, msg);
+      const pageSize = 5;
+      const pageData = await listAllProductsPaginated(1, pageSize);
+      session.data.productPagination = {
+        currentPage: pageData.page,
+        totalPages: pageData.totalPages,
+        pageSize: pageData.pageSize
+      };
+      session.data.productPageItems = pageData.items;
+      await session.save();
+
+      const msg = buildProductListMessage(pageData.items, pageData.page, pageData.totalPages);
+      await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
       return;
     }
 
@@ -1339,7 +1515,9 @@ const handleProductSearch = async (phoneNumber, session, parameters) => {
     products.slice(0, 5).forEach((product, index) => {
       message += `${index + 1}. ${product.name}\n`;
       message += `   Price: ₦${product.price}\n`;
-      message += `   Category: ${product.category}\n\n`;
+      message += `   Category: ${product.category}\n`;
+      if (product.imageUrl) message += `   Image: ${product.imageUrl}\n`;
+      message += `\n`;
     });
 
     message += `To add a product to your cart, reply with "add [product number] [quantity]"\nExample: "add 1 2" to add 2 units of the first product.`;
@@ -1491,6 +1669,22 @@ const handlePlaceOrder = async (phoneNumber, session, parameters) => {
     const errorMessage = handleApiError(error, 'place_order').message;
     await sendWhatsAppMessage(phoneNumber, `❌ Failed to place order: ${errorMessage}`);
   }
+};
+
+const buildProductListMessage = (items, page, totalPages) => {
+  let message = `📦 Medicines (Page ${page}/${totalPages})\n\n`;
+  items.forEach((product, index) => {
+    message += `${index + 1}. ${product.name}\n`;
+    if (product.price) message += `   Price: ₦${product.price}\n`;
+    if (product.category) message += `   Category: ${product.category}\n`;
+    if (product.imageUrl) message += `   Image: ${product.imageUrl}\n`;
+    message += `\n`;
+  });
+  const prevLabel = page > 1 ? `Previous (${page - 1})` : '';
+  const nextLabel = page < totalPages ? `Next (${page + 1})` : '';
+  const navLine = [prevLabel, nextLabel].filter(Boolean).join(' | ');
+  if (navLine) message += `${navLine}\nReply with Next, Previous, or the page number.`;
+  return message;
 };
 
 // Handle track order
@@ -1716,14 +1910,20 @@ const handleSupportRequest = async (phoneNumber, session, parameters) => {
   try {
     const isLoggedIn = session.state === 'LOGGED_IN';
     const supportRole = parameters.supportType || 'general';
-    const result = await startSupportChat(phoneNumber, supportRole);
+    await startSupportChat(phoneNumber, supportRole);
 
     const msg = formatResponseWithOptions(`You've been connected to our ${supportRole} support team. Please describe your issue and a support agent will assist you shortly.`, isLoggedIn);
     await sendWhatsAppMessage(phoneNumber, msg);
   } catch (error) {
     console.error('Error starting support chat:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while connecting you to support. Please try again later.", session.state === 'LOGGED_IN');
-    await sendWhatsAppMessage(phoneNumber, msg);
+    // Revert session state on failure
+    try {
+      session.state = 'LOGGED_IN';
+      session.supportTeamId = null;
+      await session.save();
+    } catch (_) {}
+    const msg = formatResponseWithOptions("Support is currently unavailable. You are back with the bot. Type 'help' for menu.", session.state === 'LOGGED_IN');
+    try { await sendWhatsAppMessage(phoneNumber, msg); } catch (_) {}
   }
 };
 
