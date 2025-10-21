@@ -2233,8 +2233,12 @@ const handleResendOTP = async (phoneNumber, session) => {
       const fallbackMsg = formatResponseWithOptions(`⚠️ **Email service temporarily unavailable.**\n\n✅ **You can still continue:**\n1️⃣ A new OTP code has been generated and saved\n2️⃣ Contact our support team to get your backup OTP code\n3️⃣ Reply with your 4-digit code when you have it\n\nNeed help? Type 'support' to reach our team.`, false);
       await sendWhatsAppMessage(phoneNumber, fallbackMsg);
 
-      session.data.waitingForOTPVerification = true;
-      session.data.emailSendFailed = true;
+      session.data = {
+        ...session.data,
+        waitingForOTPVerification: true,
+        emailSendFailed: true
+      };
+      session.changed('data', true);
       await session.save();
     }
   } catch (error) {
