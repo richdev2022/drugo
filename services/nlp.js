@@ -96,6 +96,8 @@ const HELP_MESSAGE = `🏥 *Drugs.ng WhatsApp Bot - Available Services:*
 
 Simply reply with a number (1-8) or describe what you need!`;
 
+const { parseOrderIdFromText, isValidOrderId } = require('../utils/orderParser');
+
 const processMessage = async (message, phoneNumber, session) => {
   try {
     if (!message || typeof message !== 'string') {
