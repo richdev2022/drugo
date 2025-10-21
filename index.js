@@ -1587,7 +1587,7 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
         const { sendOTPEmail } = require('./config/brevo');
         try {
           await sendOTPEmail(userData.email, otp, userData.name);
-          const otpMsg = formatResponseWithOptions(`✅ OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
+          const otpMsg = formatResponseWithOptions(`��� OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
           await sendWhatsAppMessage(phoneNumber, otpMsg);
         } catch (emailError) {
           emailSent = false;
@@ -1846,7 +1846,7 @@ const handlePlaceOrder = async (phoneNumber, session, parameters) => {
             if (orderData.paymentMethod.toLowerCase().includes('flutterwave')) {
               paymentResponse = await processFlutterwavePayment(paymentDetails);
               if (paymentResponse.status === 'success' && paymentResponse.data.link) {
-                await sendWhatsAppMessage(phoneNumber, `💳 Complete your payment:\n${paymentResponse.data.link}\n\nAmount: ₦${order.totalAmount.toLocaleString()}`);
+                await sendWhatsAppMessage(phoneNumber, `💳 Complete your payment:\n${paymentResponse.data.link}\n\nAmount: ��${order.totalAmount.toLocaleString()}`);
               }
             } else if (orderData.paymentMethod.toLowerCase().includes('paystack')) {
               paymentResponse = await processPaystackPayment(paymentDetails);
@@ -2128,6 +2128,75 @@ const handleSupportRequest = async (phoneNumber, session, parameters) => {
     } catch (_) {}
     const msg = formatResponseWithOptions("Support is currently unavailable. You are back with the bot. Type 'help' for menu.", session.state === 'LOGGED_IN');
     try { await sendWhatsAppMessage(phoneNumber, msg); } catch (_) {}
+  }
+};
+
+// Handle resend OTP
+const handleResendOTP = async (phoneNumber, session) => {
+  try {
+    const registrationData = session.data && session.data.registrationData;
+
+    if (!registrationData || !registrationData.email) {
+      const msg = formatResponseWithOptions("❌ No active registration found. Please start over by typing 'register'.", false);
+      await sendWhatsAppMessage(phoneNumber, msg);
+      session.data.waitingForOTPVerification = false;
+      session.data.registrationData = null;
+      await session.save();
+      return;
+    }
+
+    const { OTP } = require('./models');
+    const { generateOTP, getOTPExpiry } = require('./utils/otp');
+    const { sendOTPEmail } = require('./config/brevo');
+
+    // Generate a new OTP
+    const newOtp = generateOTP();
+    const expiresAt = getOTPExpiry();
+
+    // Mark old OTPs as used so they can't be reused
+    await OTP.update(
+      { isUsed: true },
+      {
+        where: {
+          email: registrationData.email,
+          purpose: 'registration',
+          isUsed: false
+        }
+      }
+    );
+
+    // Create new OTP record
+    await OTP.create({
+      email: registrationData.email,
+      code: newOtp,
+      purpose: 'registration',
+      expiresAt: expiresAt
+    });
+
+    // Try to send the new OTP via email
+    try {
+      await sendOTPEmail(registrationData.email, newOtp, registrationData.name);
+      const msg = formatResponseWithOptions(`✅ A new OTP has been sent to ${registrationData.email}. Please reply with the 4-digit code. It's valid for 5 minutes.`, false);
+      await sendWhatsAppMessage(phoneNumber, msg);
+
+      // Reset attempt counter and mark as waiting for OTP
+      session.data.waitingForOTPVerification = true;
+      session.data.registrationAttempts = 0;
+      session.data.emailSendFailed = false;
+      await session.save();
+    } catch (emailError) {
+      console.error('Error sending resend OTP email:', emailError);
+      const fallbackMsg = formatResponseWithOptions(`⚠️ **Email service temporarily unavailable.**\n\n✅ **You can still continue:**\n1️⃣ A new OTP code has been generated and saved\n2️⃣ Contact our support team to get your backup OTP code\n3️⃣ Reply with your 4-digit code when you have it\n\nNeed help? Type 'support' to reach our team.`, false);
+      await sendWhatsAppMessage(phoneNumber, fallbackMsg);
+
+      session.data.waitingForOTPVerification = true;
+      session.data.emailSendFailed = true;
+      await session.save();
+    }
+  } catch (error) {
+    console.error('Error resending OTP:', error);
+    const msg = formatResponseWithOptions("❌ Error resending OTP. Please try again or type 'support' for help.", false);
+    await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
 
