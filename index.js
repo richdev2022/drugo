@@ -98,6 +98,126 @@ async function startServer() {
   }
 }
 
+// Admin auth middleware
+const adminAuthMiddleware = async (req, res, next) => {
+  try {
+    const auth = req.headers.authorization || '';
+    const token = auth.replace(/^Bearer\s+/i, '') || null;
+    if (!token) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const admin = await adminService.verifyAdminToken(token);
+    if (!admin) return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+    req.admin = admin;
+    next();
+  } catch (error) {
+    console.error('Admin auth error:', error);
+    return res.status(500).json({ success: false, message: 'Auth failed' });
+  }
+};
+
+// Admin endpoints
+app.post('/api/admin/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const result = await adminService.adminLogin(email, password);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Admin login error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/admin/request-reset', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const result = await adminService.requestAdminPasswordResetOTP(email);
+    res.json(result);
+  } catch (error) {
+    console.error('Admin request reset error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/admin/verify-reset', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const result = await adminService.verifyAdminPasswordResetOTP(email, otp);
+    res.json(result);
+  } catch (error) {
+    console.error('Admin verify reset error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/admin/reset-password', async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    const result = await adminService.completeAdminPasswordReset(email, otp, newPassword);
+    res.json(result);
+  } catch (error) {
+    console.error('Admin reset password error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Protected admin management routes (require adminAuthMiddleware)
+app.post('/api/admin/staff', adminAuthMiddleware, async (req, res) => {
+  try {
+    const data = req.body;
+    const result = await adminService.createStaff(data, req.admin);
+    res.json(result);
+  } catch (error) {
+    console.error('Create staff error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const result = await adminService.fetchTable(table, req.query);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Admin fetch table error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const created = await adminService.addRecord(table, req.body);
+    res.json({ success: true, data: created });
+  } catch (error) {
+    console.error('Admin add record error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.put('/api/admin/:table/:id', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const id = req.params.id;
+    const updated = await adminService.updateRecord(table, id, req.body);
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    console.error('Admin update record error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.delete('/api/admin/:table/:id', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const id = req.params.id;
+    const result = await adminService.deleteRecord(table, id);
+    res.json(result);
+  } catch (error) {
+    console.error('Admin delete record error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+
 // Root endpoint for status check
 app.get('/', (req, res) => {
   res.status(200).json({
