@@ -20,7 +20,7 @@ const initializeOCRWorker = async () => {
   }
 };
 
-// Extract text from prescription image/PDF
+// Extract text from prescription image/PDF (path)
 const extractPrescriptionText = async (imagePath) => {
   try {
     if (!imagePath) {
@@ -43,6 +43,20 @@ const extractPrescriptionText = async (imagePath) => {
     };
   } catch (error) {
     console.error('Error extracting prescription text:', error);
+    throw error;
+  }
+};
+
+// Extract text from buffer (preferred when we already have buffer)
+const extractPrescriptionFromBuffer = async (buffer) => {
+  try {
+    if (!buffer) throw new Error('Buffer is required');
+    const ocrWorker = await initializeOCRWorker();
+    const { data: { text } } = await ocrWorker.recognize(buffer, 'eng');
+    const prescriptionData = parsePrescriptionText(text);
+    return { success: true, extractedText: text, parsedData: prescriptionData };
+  } catch (error) {
+    console.error('Error extracting prescription from buffer:', error);
     throw error;
   }
 };
