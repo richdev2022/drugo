@@ -1179,7 +1179,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
   }
 
   // Check if waiting for OTP verification during registration
-    if (session.data && session.data.waitingForOTPVerification && session.state === 'REGISTERING') {
+    if (session.data && session.data.waitingForOTPVerification) {
       const otpMatch = messageText.match(/^\d{4}$/);
       if (otpMatch) {
         console.log(`🔐 Processing OTP verification`);
