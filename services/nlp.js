@@ -574,5 +574,7 @@ module.exports = {
   processMessage,
   formatResponseWithOptions,
   FEATURE_COMMANDS,
-  HELP_MESSAGE
+  HELP_MESSAGE,
+  fuzzyMatch,
+  extractKeywords
 };
