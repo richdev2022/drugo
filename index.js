@@ -7,6 +7,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { sequelize, initializeDatabase } = require('./models');
 const { sendWhatsAppMessage, markMessageAsRead, getMediaInfo, downloadMedia, isPermissionError } = require('./config/whatsapp');
+const adminService = require('./services/admin');
 const { processMessage, formatResponseWithOptions } = require('./services/nlp');
 const {
   registerUser,
@@ -1067,7 +1068,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
         break;
 
       default:
-        console.log(`��� Unknown intent, sending fallback response`);
+        console.log(`❓ Unknown intent, sending fallback response`);
         const responseWithOptions = formatResponseWithOptions(fulfillmentText || "I'm not sure how to help with that. Type 'help' for menu.", isLoggedIn);
         await sendWhatsAppMessage(phoneNumber, responseWithOptions);
     }
