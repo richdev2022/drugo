@@ -1242,21 +1242,33 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
   }
 
   // Check if waiting for OTP verification during registration
-    if (session.data && session.data.waitingForOTPVerification) {
-      const otpMatch = messageText.match(/^\d{4}$/);
-      if (otpMatch) {
-        console.log(`🔐 Processing OTP verification`);
-        await handleRegistrationOTPVerification(phoneNumber, session, otpMatch[0]);
-        return;
-      }
-    }
+  // This must bypass NLP to prevent dynamic OTP codes from being misinterpreted
+  if (session.state === 'REGISTERING' || (session.data && session.data.waitingForOTPVerification)) {
+    const otpMatch = messageText.trim().match(/^\d{4}$/);
+    const resendMatch = messageText.toLowerCase().trim().match(/^(resend|retry|send again)$/);
 
-    // Process with NLP
-    console.log(`🤖 Processing with NLP...`);
-    const isLoggedIn = session.state === 'LOGGED_IN';
-    const nlpResult = await processMessage(messageText, phoneNumber, session);
-    const { intent, parameters, fulfillmentText } = nlpResult;
-    console.log(`✨ NLP Result: intent="${intent}", source="${nlpResult.source}", confidence=${nlpResult.confidence}`);
+    if (otpMatch) {
+      console.log(`🔐 Processing OTP verification with code: ${otpMatch[0]}`);
+      await handleRegistrationOTPVerification(phoneNumber, session, otpMatch[0]);
+      return;
+    } else if (resendMatch) {
+      console.log(`🔄 Processing OTP resend request`);
+      await handleResendOTP(phoneNumber, session);
+      return;
+    } else if (session.state === 'REGISTERING' && session.data && session.data.waitingForOTPVerification) {
+      // User is in REGISTERING state but entered invalid input
+      const errorMsg = formatResponseWithOptions("❌ Please enter your 4-digit OTP code. If you need to resend the OTP, type 'resend'.", false);
+      await sendWhatsAppMessage(phoneNumber, errorMsg);
+      return;
+    }
+  }
+
+  // Process with NLP
+  console.log(`🤖 Processing with NLP...`);
+  const isLoggedIn = session.state === 'LOGGED_IN';
+  const nlpResult = await processMessage(messageText, phoneNumber, session);
+  const { intent, parameters, fulfillmentText } = nlpResult;
+  console.log(`✨ NLP Result: intent="${intent}", source="${nlpResult.source}", confidence=${nlpResult.confidence}`);
 
     // Handle different intents
     console.log(`🎯 Handling intent: ${intent}`);
@@ -1546,9 +1558,12 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
         console.error('Error checking existing user:', error);
       }
 
-      // Store registration data in session
+      // NOTE: Do NOT store full user data in session yet. Only store temporary registration data.
+      // The user will only be created after successful OTP verification.
       session.state = 'REGISTERING';
       session.data.registrationData = userData;
+      session.data.userId = null;
+      session.data.token = null;
       await session.save();
 
       // Request OTP to be sent to email
@@ -2078,7 +2093,7 @@ const handlePayment = async (phoneNumber, session, parameters) => {
 
 // Handle help
 const handleHelp = async (phoneNumber, isLoggedIn) => {
-  const helpMessage = `🏥 *Drugs.ng WhatsApp Bot - Available Services:*
+  const helpMessage = `��� *Drugs.ng WhatsApp Bot - Available Services:*
 
 1️⃣ *Search Medicines* - Type "1" or "Find paracetamol"
 2️⃣ *Find Doctors* - Type "2" or "Find a cardiologist"
@@ -2116,29 +2131,100 @@ const handleSupportRequest = async (phoneNumber, session, parameters) => {
   }
 };
 
+// Handle resend OTP
+const handleResendOTP = async (phoneNumber, session) => {
+  try {
+    const registrationData = session.data && session.data.registrationData;
+
+    if (!registrationData || !registrationData.email) {
+      const msg = formatResponseWithOptions("❌ No active registration found. Please start over by typing 'register'.", false);
+      await sendWhatsAppMessage(phoneNumber, msg);
+      session.data.waitingForOTPVerification = false;
+      session.data.registrationData = null;
+      await session.save();
+      return;
+    }
+
+    const { OTP } = require('./models');
+    const { generateOTP, getOTPExpiry } = require('./utils/otp');
+    const { sendOTPEmail } = require('./config/brevo');
+
+    // Generate a new OTP
+    const newOtp = generateOTP();
+    const expiresAt = getOTPExpiry();
+
+    // Mark old OTPs as used so they can't be reused
+    await OTP.update(
+      { isUsed: true },
+      {
+        where: {
+          email: registrationData.email,
+          purpose: 'registration',
+          isUsed: false
+        }
+      }
+    );
+
+    // Create new OTP record
+    await OTP.create({
+      email: registrationData.email,
+      code: newOtp,
+      purpose: 'registration',
+      expiresAt: expiresAt
+    });
+
+    // Try to send the new OTP via email
+    try {
+      await sendOTPEmail(registrationData.email, newOtp, registrationData.name);
+      const msg = formatResponseWithOptions(`✅ A new OTP has been sent to ${registrationData.email}. Please reply with the 4-digit code. It's valid for 5 minutes.`, false);
+      await sendWhatsAppMessage(phoneNumber, msg);
+
+      // Reset attempt counter and mark as waiting for OTP
+      session.data.waitingForOTPVerification = true;
+      session.data.registrationAttempts = 0;
+      session.data.emailSendFailed = false;
+      await session.save();
+    } catch (emailError) {
+      console.error('Error sending resend OTP email:', emailError);
+      const fallbackMsg = formatResponseWithOptions(`⚠️ **Email service temporarily unavailable.**\n\n✅ **You can still continue:**\n1️⃣ A new OTP code has been generated and saved\n2️⃣ Contact our support team to get your backup OTP code\n3️⃣ Reply with your 4-digit code when you have it\n\nNeed help? Type 'support' to reach our team.`, false);
+      await sendWhatsAppMessage(phoneNumber, fallbackMsg);
+
+      session.data.waitingForOTPVerification = true;
+      session.data.emailSendFailed = true;
+      await session.save();
+    }
+  } catch (error) {
+    console.error('Error resending OTP:', error);
+    const msg = formatResponseWithOptions("❌ Error resending OTP. Please try again or type 'support' for help.", false);
+    await sendWhatsAppMessage(phoneNumber, msg);
+  }
+};
+
 // Handle registration OTP verification
 const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) => {
   try {
     const { OTP } = require('./models');
     const otp = (otpCode || '').trim();
-    const registrationData = session.data.registrationData;
+    const registrationData = session.data && session.data.registrationData;
 
-    if (!registrationData) {
-      const msg = formatResponseWithOptions("Registration session expired. Please start again by typing 'register'.", false);
+    if (!registrationData || !registrationData.email) {
+      const msg = formatResponseWithOptions("❌ Registration session expired. Please start again by typing 'register'.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
       session.data.waitingForOTPVerification = false;
+      session.data.registrationData = null;
       await session.save();
       return;
     }
 
-    // Verify OTP - must be exactly 4 digits
+    // Verify OTP format - must be exactly 4 digits
     if (!/^\d{4}$/.test(otp)) {
       const msg = formatResponseWithOptions("❌ Invalid OTP format. Please enter exactly 4 digits.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
 
-    // Find the OTP record - check if it matches exactly
+    // Direct database lookup: Find the OTP record that matches email and code
+    // This bypasses any NLP interpretation and ensures exact matching
     const otpRecord = await OTP.findOne({
       where: {
         email: registrationData.email,
@@ -2148,41 +2234,35 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
     });
 
     if (!otpRecord) {
-      const msg = formatResponseWithOptions("❌ Invalid OTP. The code you entered doesn't match our records.\n\n💡 **Options:**\n1️⃣ Check your email - make sure you entered the correct 4-digit code\n2️⃣ Contact admin - they can provide you a backup OTP\n3️⃣ Type 'register' again - to start fresh and get a new OTP\n\nNeed help? Type 'support' to contact our team.", false);
+      const msg = formatResponseWithOptions("❌ Invalid OTP. The code you entered doesn't match our records.\n\n💡 **What to do:**\n1️⃣ Double-check the 4-digit code from your email\n2️⃣ Type 'resend' if you need a new OTP code\n3️⃣ Contact support if you need a backup OTP\n\nNeed help? Type 'support' to reach our team.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
 
     // Check if OTP is already used
     if (otpRecord.isUsed) {
-      const msg = formatResponseWithOptions("❌ This OTP has already been used. Please type 'register' to start over and receive a new OTP.", false);
+      const msg = formatResponseWithOptions("❌ This OTP has already been used. Please type 'resend' to get a new OTP code.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
-      session.data.waitingForOTPVerification = false;
-      session.data.registrationData = null;
-      await session.save();
       return;
     }
 
     // Check if OTP is expired
     if (new Date() > otpRecord.expiresAt) {
-      const msg = formatResponseWithOptions("❌ OTP has expired.\n\n💡 **What to do:**\n1️⃣ Type 'register' to start over and get a fresh OTP\n2️⃣ Contact admin if you need an immediate backup OTP\n\nNeed help? Type 'support' to reach our team.", false);
+      const msg = formatResponseWithOptions("❌ OTP has expired (valid for only 5 minutes).\n\n💡 **What to do:**\nType 'resend' to receive a fresh OTP code.\n\nNeed help? Type 'support' to reach our team.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
-      session.data.waitingForOTPVerification = false;
-      session.data.registrationData = null;
-      await session.save();
       return;
     }
 
-    // Mark OTP as used
+    // Mark OTP as used BEFORE creating user (for security)
     otpRecord.isUsed = true;
     otpRecord.usedAt = new Date();
     await otpRecord.save();
 
-    // Complete registration
+    // NOW complete user registration (only AFTER OTP is verified)
     try {
       const result = await registerUser(registrationData);
 
-      // Update session
+      // ONLY NOW update session with user data (after successful registration)
       session.state = 'LOGGED_IN';
       session.data.userId = result.userId;
       session.data.token = result.token;
@@ -2202,18 +2282,21 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
     } catch (error) {
       console.error('Registration completion error:', error);
       const errorMessage = handleApiError(error, 'registration').message;
-      const errorMsg = formatResponseWithOptions(`❌ Registration failed: ${errorMessage}. Please try again.`, false);
+      const errorMsg = formatResponseWithOptions(`❌ Registration failed: ${errorMessage}. Please try again or type 'resend' to get a new OTP.`, false);
       await sendWhatsAppMessage(phoneNumber, errorMsg);
-      session.data.waitingForOTPVerification = false;
-      session.data.registrationData = null;
+
+      // Reset OTP used flag since registration failed, but keep session in REGISTERING state
+      otpRecord.isUsed = false;
+      otpRecord.usedAt = null;
+      await otpRecord.save();
+
+      session.data.waitingForOTPVerification = true;
       await session.save();
     }
   } catch (error) {
     console.error('Error verifying OTP:', error);
-    const msg = formatResponseWithOptions("❌ Error verifying OTP. Please try again.", false);
+    const msg = formatResponseWithOptions("❌ Error verifying OTP. Please try again or type 'support' for help.", false);
     await sendWhatsAppMessage(phoneNumber, msg);
-    session.data.waitingForOTPVerification = false;
-    await session.save();
   }
 };
 
