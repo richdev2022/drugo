@@ -2194,11 +2194,22 @@ const handleResendOTP = async (phoneNumber, session) => {
     );
 
     // Create new OTP record
+    const { encryptData } = require('./services/security');
+    const encryptedRegistration = (() => {
+      try {
+        return encryptData({ name: registrationData.name, email: registrationData.email, password: registrationData.password, phoneNumber: registrationData.phoneNumber }).encryptedData;
+      } catch (e) {
+        console.warn('Failed to encrypt registration snapshot for OTP meta (resend):', e.message);
+        return null;
+      }
+    })();
+
     await OTP.create({
       email: registrationData.email,
       code: newOtp,
       purpose: 'registration',
-      expiresAt: expiresAt
+      expiresAt: expiresAt,
+      meta: encryptedRegistration ? { registrationData: encryptedRegistration } : null
     });
 
     // Try to send the new OTP via email
