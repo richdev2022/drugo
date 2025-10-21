@@ -1932,7 +1932,7 @@ const handleTrackOrder = async (phoneNumber, session, parameters) => {
     const statusEmoji = {
       'Processing': '⏳',
       'Shipped': '🚚',
-      'Delivered': '✅',
+      'Delivered': '���',
       'Cancelled': '❌'
     };
 
@@ -2245,43 +2245,80 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
     const { OTP } = require('./models');
     const otp = (otpCode || '').trim();
 
-    // Reload session from database to ensure we have the latest data
-    const freshSession = await sequelize.models.Session.findOne({
-      where: { phoneNumber }
-    });
-
-    let registrationData = (freshSession && freshSession.data && freshSession.data.registrationData) || (session.data && session.data.registrationData);
-
-    if (!registrationData || !registrationData.email) {
-      const msg = formatResponseWithOptions("❌ Registration session expired. Please start again by typing 'register'.", false);
-      await sendWhatsAppMessage(phoneNumber, msg);
-      if (freshSession) {
-        freshSession.data.waitingForOTPVerification = false;
-        freshSession.data.registrationData = null;
-        await freshSession.save();
-      }
-      return;
-    }
-
-    // Update session reference to use fresh session for subsequent saves
-    session = freshSession || session;
-
     // Verify OTP format - must be exactly 4 digits
-    if (!/^\d{4}$/.test(otp)) {
-      const msg = formatResponseWithOptions("❌ Invalid OTP format. Please enter exactly 4 digits.", false);
-      await sendWhatsAppMessage(phoneNumber, msg);
-      return;
-    }
+  if (!/^\d{4}$/.test(otp)) {
+    const msg = formatResponseWithOptions("❌ Invalid OTP format. Please enter exactly 4 digits.", false);
+    await sendWhatsAppMessage(phoneNumber, msg);
+    return;
+  }
 
-    // Direct database lookup: Find the OTP record that matches email and code
-    // This bypasses any NLP interpretation and ensures exact matching
-    const otpRecord = await OTP.findOne({
+  // Reload session from database to ensure we have the latest data
+  const freshSession = await sequelize.models.Session.findOne({
+    where: { phoneNumber }
+  });
+
+  let registrationData = (freshSession && freshSession.data && freshSession.data.registrationData) || (session.data && session.data.registrationData);
+
+  // Try to find OTP record by code (most reliable source of truth for this code)
+  const otpRecordByCode = await OTP.findOne({
+    where: {
+      code: otp,
+      purpose: 'registration'
+    },
+    order: [['createdAt', 'DESC']]
+  });
+
+  // If we don't have registrationData in session, attempt to recover it from OTP metadata
+  if ((!registrationData || !registrationData.email) && otpRecordByCode) {
+    try {
+      const { decryptData } = require('./services/security');
+      if (otpRecordByCode.meta && otpRecordByCode.meta.registrationData) {
+        const decrypted = decryptData(otpRecordByCode.meta.registrationData);
+        if (decrypted && decrypted.email) {
+          registrationData = {
+            name: decrypted.name,
+            email: decrypted.email,
+            password: decrypted.password,
+            phoneNumber: decrypted.phoneNumber || normalizePhoneNumber(phoneNumber)
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to decrypt registration snapshot from OTP meta:', e.message);
+      // continue - we'll handle missing registrationData below
+    }
+  }
+
+  // If still missing registration data, we can't proceed safely
+  if (!registrationData || !registrationData.email) {
+    const msg = formatResponseWithOptions("❌ Registration session expired. Please start again by typing 'register'.", false);
+    await sendWhatsAppMessage(phoneNumber, msg);
+    if (freshSession) {
+      freshSession.data.waitingForOTPVerification = false;
+      freshSession.data.registrationData = null;
+      await freshSession.save();
+    }
+    return;
+  }
+
+  // Update session reference to use fresh session for subsequent saves
+  session = freshSession || session;
+
+  // Direct database lookup: Find the OTP record that matches email and code
+  // Prefer otpRecordByCode but ensure it matches the target email
+  let otpRecord = null;
+  if (otpRecordByCode && otpRecordByCode.email === registrationData.email) {
+    otpRecord = otpRecordByCode;
+  } else {
+    otpRecord = await OTP.findOne({
       where: {
         email: registrationData.email,
         code: otp,
         purpose: 'registration'
-      }
+      },
+      order: [['createdAt','DESC']]
     });
+  }
 
     if (!otpRecord) {
       const msg = formatResponseWithOptions("❌ Invalid OTP. The code you entered doesn't match our records.\n\n💡 **What to do:**\n1️⃣ Double-check the 4-digit code from your email\n2️⃣ Type 'resend' if you need a new OTP code\n3️⃣ Contact support if you need a backup OTP\n\nNeed help? Type 'support' to reach our team.", false);
