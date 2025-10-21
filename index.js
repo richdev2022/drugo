@@ -39,7 +39,7 @@ const {
   updateProductImage,
   getProductImageUrl
 } = require('./services/healthcareProducts');
-const { uploadAndSavePrescription, savePrescription } = require('./services/prescription');
+const { uploadAndSavePrescription, savePrescription, extractPrescriptionFromBuffer } = require('./services/prescription');
 const {
   uploadDoctorImage,
   updateDoctorImage,
@@ -344,13 +344,22 @@ app.post('/webhook', async (req, res) => {
                     resourceType: 'auto'
                   });
 
+                  // Run OCR to extract text from the uploaded file buffer (best-effort)
+                  let extractedText = null;
+                  try {
+                    const ocr = await extractPrescriptionFromBuffer(buffer);
+                    extractedText = ocr?.extractedText || null;
+                  } catch (ocrErr) {
+                    console.warn('OCR failed on incoming media:', ocrErr.message);
+                  }
+
                   // Try to get order ID from caption like: "rx 123", "order 123", "prescription 123"
                   const match = caption && caption.match(/(?:rx|order|prescription)\s*#?(\d+)/i);
 
                   if (match && match[1]) {
                     const orderId = match[1];
                     try {
-                      const result = await savePrescription(orderId, uploadResult.url);
+                      const result = await savePrescription(orderId, uploadResult.url, extractedText);
                       await sendWhatsAppMessage(phoneNumber, `✅ Prescription received and attached to order #${orderId}. Status: ${result.verificationStatus || 'Pending'}.`);
                     } catch (err) {
                       console.error('Attach prescription error:', err);
@@ -364,6 +373,9 @@ app.post('/webhook', async (req, res) => {
                     }
                     session.data = session.data || {};
                     session.data.pendingPrescriptionUrl = uploadResult.url;
+                    if (extractedText) {
+                      session.data.pendingPrescriptionExtractedText = extractedText;
+                    }
                     await session.save();
 
                     await sendWhatsAppMessage(phoneNumber, '📄 Prescription received.\n\nTo attach it to an order, reply now with your Order ID.\nExample: rx 12345\n\nNext time, you can auto-attach by adding a caption to your file: \n• rx 12345\n• order 12345\n• prescription 12345\n\nWhere to find your Order ID:\n• In your order confirmation message (look for "Order ID: #12345")\n• If you know it, check status with: track 12345\n• If you can’t find it, type "support" and we’ll help link it for you.');
@@ -1019,8 +1031,9 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
     const orderId = attachMatch[1];
     if (session.data && session.data.pendingPrescriptionUrl) {
       try {
-        const result = await savePrescription(orderId, session.data.pendingPrescriptionUrl);
+        const result = await savePrescription(orderId, session.data.pendingPrescriptionUrl, session.data.pendingPrescriptionExtractedText || null);
         session.data.pendingPrescriptionUrl = null;
+        session.data.pendingPrescriptionExtractedText = null;
         await session.save();
         await sendWhatsAppMessage(phoneNumber, `✅ Prescription attached to order #${orderId}. Status: ${result.verificationStatus || 'Pending'}.`);
       } catch (err) {
@@ -1170,7 +1183,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
         break;
 
       case 'diagnostic_tests':
-        console.log(`🔬 Handling diagnostic tests search`);
+        console.log(`�� Handling diagnostic tests search`);
         if (!isLoggedIn) {
           await sendAuthRequiredMessage(phoneNumber);
         } else {
