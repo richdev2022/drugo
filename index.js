@@ -1524,6 +1524,15 @@ const handleSupportCommand = async (supportTeam, commandText) => {
 };
 
 // Send authentication required message
+// Helper to check if a session is authenticated (logged in, has userId)
+const isAuthenticatedSession = (session) => {
+  try {
+    return !!(session && session.state === 'LOGGED_IN' && session.data && session.data.userId);
+  } catch (e) {
+    return false;
+  }
+};
+
 const sendAuthRequiredMessage = async (phoneNumber) => {
   const authMessage = `🔐 *Authentication Required*\n\nYou need to be logged in to access this feature.\n\nPlease login with your email and password:\nExample: login john@example.com mypassword\n\nOr register if you're new:\nExample: register John Doe john@example.com mypassword\n\n📋 Type "help" to see all options.`;
   await sendWhatsAppMessage(phoneNumber, authMessage);
