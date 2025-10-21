@@ -520,9 +520,9 @@ const extractIntentFromMessage = (lowerMessage) => {
   }
 
   if (foundKeywords.tracking.length > 0) {
-    // Try to extract order ID
-    const numMatch = lowerMessage.match(/\d+/);
-    return createResponse('track_order', { orderId: numMatch ? numMatch[0] : undefined });
+    // Try to extract order ID using robust parser
+    const parsed = parseOrderIdFromText(lowerMessage);
+    return createResponse('track_order', { orderId: parsed || undefined });
   }
 
   // Fallback: use pattern matching for additional context
