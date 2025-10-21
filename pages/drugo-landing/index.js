@@ -20,7 +20,7 @@ export default function DrugoLanding(){
       <Head>
         <title>Drugo — Medicines Delivered, Instant Help</title>
         <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <link rel="icon" href={LOGO_URL} />
+        <link rel="icon" href="/favicon.svg" />
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet" />
         <link rel="stylesheet" href="/drugo-landing/styles.css" />
       </Head>
