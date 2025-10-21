@@ -187,6 +187,68 @@ const deleteRecord = async (tableName, id, admin = null) => {
   return { success: true };
 };
 
+// Create backup OTP for user registration
+const createBackupOTP = async (email, adminUser) => {
+  if (!email) throw new Error('Email is required');
+  if (!adminUser) throw new Error('Admin authentication required');
+  if (!hasPermission(adminUser.role, 'create', 'OTP')) throw new Error('Permission denied - cannot create backup OTP');
+
+  // Generate OTP
+  const otp = generateOTP();
+  const expiresAt = getOTPExpiry();
+
+  // Create backup OTP record
+  const otpRecord = await OTP.create({
+    email: email.toLowerCase(),
+    code: otp,
+    purpose: 'registration',
+    isBackupOTP: true,
+    createdByAdmin: adminUser.name || adminUser.email,
+    expiresAt: expiresAt,
+    isUsed: false
+  });
+
+  return {
+    success: true,
+    message: `Backup OTP created for ${email}`,
+    otp: otp,
+    expiresAt: expiresAt,
+    adminCreated: true
+  };
+};
+
+// Get OTP status for troubleshooting
+const getOTPStatus = async (email, adminUser) => {
+  if (!email) throw new Error('Email is required');
+  if (!adminUser) throw new Error('Admin authentication required');
+  if (!hasPermission(adminUser.role, 'read', 'OTP')) throw new Error('Permission denied');
+
+  const otpRecords = await OTP.findAll({
+    where: {
+      email: email.toLowerCase(),
+      purpose: 'registration'
+    },
+    order: [['createdAt', 'DESC']],
+    limit: 5
+  });
+
+  return {
+    email: email,
+    otpRecords: otpRecords.map(otp => ({
+      id: otp.id,
+      code: otp.code,
+      isUsed: otp.isUsed,
+      isBackupOTP: otp.isBackupOTP,
+      createdByAdmin: otp.createdByAdmin,
+      expiresAt: otp.expiresAt,
+      createdAt: otp.createdAt,
+      usedAt: otp.usedAt,
+      sendAttempts: otp.sendAttempts
+    })),
+    hasValidOTP: otpRecords.some(otp => !otp.isUsed && new Date() <= otp.expiresAt)
+  };
+};
+
 // Export table as CSV or JSON (no pagination)
 const exportTable = async (tableName, query = {}, admin = null) => {
   const Model = sequelize.models[tableName];
