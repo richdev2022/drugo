@@ -898,6 +898,19 @@ const seedInitialData = async () => {
         console.warn('⚠️  Could not seed healthcare products:', error.message);
       }
     }
+
+    // Seed admin owner
+    try {
+      const adminCount = await sequelize.models.Admin ? await Admin.count() : 0;
+      if (adminCount === 0) {
+        const ownerEmail = process.env.OWNER_EMAIL || 'sundayitodo500@gmail.com';
+        const ownerPassword = process.env.OWNER_PASSWORD || 'MyPassword@123';
+        await Admin.create({ name: 'Owner', email: ownerEmail.toLowerCase(), password: ownerPassword, role: 'Owner', isActive: true });
+        console.log('✓ Owner admin seeded');
+      }
+    } catch (err) {
+      console.warn('⚠️  Could not seed owner admin:', err.message);
+    }
   } catch (error) {
     console.error('❌ Error seeding initial data:', error.message);
   }
@@ -906,6 +919,7 @@ const seedInitialData = async () => {
 module.exports = {
   sequelize,
   User,
+  Admin,
   Product,
   Doctor,
   Order,
