@@ -2239,12 +2239,24 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       where: { phoneNumber }
     });
 
+    // Ensure freshSession.data is always an object
+    if (freshSession && (!freshSession.data || typeof freshSession.data !== 'object')) {
+      freshSession.data = {};
+    }
+
+    // Log for debugging
+    console.log(`🔍 DEBUG: Session found for ${phoneNumber}, state: ${freshSession ? freshSession.state : 'not found'}`);
+    console.log(`🔍 DEBUG: Session data keys: ${freshSession && freshSession.data ? Object.keys(freshSession.data) : 'no data'}`);
+    console.log(`🔍 DEBUG: registrationData exists: ${freshSession && freshSession.data && !!freshSession.data.registrationData}`);
+
     let registrationData = (freshSession && freshSession.data && freshSession.data.registrationData) || (session.data && session.data.registrationData);
 
     if (!registrationData || !registrationData.email) {
+      console.log(`❌ DEBUG: No registration data found for ${phoneNumber}`);
       const msg = formatResponseWithOptions("❌ Registration session expired. Please start again by typing 'register'.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
       if (freshSession) {
+        freshSession.data = freshSession.data || {};
         freshSession.data.waitingForOTPVerification = false;
         freshSession.data.registrationData = null;
         await freshSession.save();
