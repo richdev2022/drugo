@@ -498,6 +498,26 @@ const OTP = sequelize.define('OTP', {
   usedAt: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  isBackupOTP: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    comment: 'Indicates if this OTP was manually created by admin as backup'
+  },
+  createdByAdmin: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Admin name/ID who created this backup OTP'
+  },
+  sendAttempts: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: 'Number of times send was attempted'
+  },
+  lastSendAttemptAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Timestamp of last send attempt'
   }
 }, {
   tableName: 'otps',

@@ -1504,21 +1504,30 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
           expiresAt: expiresAt
         });
 
-        // Send OTP email
+        // Try to send OTP email
+        let emailSent = true;
         const { sendOTPEmail } = require('./config/brevo');
-        await sendOTPEmail(userData.email, otp, userData.name);
+        try {
+          await sendOTPEmail(userData.email, otp, userData.name);
+          const otpMsg = formatResponseWithOptions(`📧 OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
+          await sendWhatsAppMessage(phoneNumber, otpMsg);
+        } catch (emailError) {
+          emailSent = false;
+          console.error('Error sending OTP email via Brevo:', emailError);
+          // Even if email send fails, allow user to verify with backup OTP from admin
+          const fallbackMsg = formatResponseWithOptions(`⚠️ Failed to send OTP via email. However, you can still complete registration in two ways:\n\n1️⃣ **Enter the OTP** (if you received it from an admin or notification)\n2️⃣ **Try again later** if email service recovers\n\nPlease reply with your 4-digit OTP code to verify your account.`, false);
+          await sendWhatsAppMessage(phoneNumber, fallbackMsg);
+        }
 
-        const otpMsg = formatResponseWithOptions(`📧 OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
-        await sendWhatsAppMessage(phoneNumber, otpMsg);
-
-        // Store that we're waiting for OTP verification
+        // Store that we're waiting for OTP verification (even if email send failed)
         session.data.waitingForOTPVerification = true;
         session.data.registrationAttempts = (session.data.registrationAttempts || 0) + 1;
+        session.data.emailSendFailed = !emailSent;
         await session.save();
 
       } catch (error) {
-        console.error('Error sending OTP:', error);
-        const errorMsg = formatResponseWithOptions(`❌ Failed to send OTP. Please try again.`, false);
+        console.error('Error in OTP generation/verification setup:', error);
+        const errorMsg = formatResponseWithOptions(`❌ Failed to process registration. Please try again later or contact support.`, false);
         await sendWhatsAppMessage(phoneNumber, errorMsg);
         session.data.registrationData = null;
         session.data.waitingForOTPVerification = false;
@@ -2048,7 +2057,7 @@ const handleSupportRequest = async (phoneNumber, session, parameters) => {
 const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) => {
   try {
     const { OTP } = require('./models');
-    const otp = otpCode || '';
+    const otp = (otpCode || '').trim();
     const registrationData = session.data.registrationData;
 
     if (!registrationData) {
@@ -2059,7 +2068,14 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       return;
     }
 
-    // Verify OTP
+    // Verify OTP - must be exactly 4 digits
+    if (!/^\d{4}$/.test(otp)) {
+      const msg = formatResponseWithOptions("❌ Invalid OTP format. Please enter exactly 4 digits.", false);
+      await sendWhatsAppMessage(phoneNumber, msg);
+      return;
+    }
+
+    // Find the OTP record
     const otpRecord = await OTP.findOne({
       where: {
         email: registrationData.email,
@@ -2070,7 +2086,7 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
     });
 
     if (!otpRecord) {
-      const msg = formatResponseWithOptions("❌ Invalid OTP. Please try again or type 'help' for assistance.", false);
+      const msg = formatResponseWithOptions("❌ Invalid OTP. The code you entered doesn't match. Please try again or contact support for assistance.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
@@ -2100,6 +2116,7 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       session.data.token = result.token;
       session.data.waitingForOTPVerification = false;
       session.data.registrationData = null;
+      session.data.emailSendFailed = false;
       await session.save();
 
       // Notify support teams
