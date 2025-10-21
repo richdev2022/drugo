@@ -482,7 +482,7 @@ app.post('/webhook', async (req, res) => {
                     }
                     await session.save();
 
-                    await sendWhatsAppMessage(phoneNumber, '��� Prescription received.\n\nTo attach it to an order, reply now with your Order ID.\nExample: rx 12345\n\nNext time, you can auto-attach by adding a caption to your file: \n• rx 12345\n• order 12345\n• prescription 12345\n\nWhere to find your Order ID:\n• In your order confirmation message (look for "Order ID: #12345")\n• If you know it, check status with: track 12345\n• If you can’t find it, type "support" and we’ll help link it for you.');
+                    await sendWhatsAppMessage(phoneNumber, '📄 Prescription received.\n\nTo attach it to an order, reply now with your Order ID.\nExample: rx 12345\n\nNext time, you can auto-attach by adding a caption to your file: \n• rx 12345\n• order 12345\n• prescription 12345\n\nWhere to find your Order ID:\n• In your order confirmation message (look for "Order ID: #12345")\n• If you know it, check status with: track 12345\n• If you can’t find it, type "support" and we’ll help link it for you.');
                   }
                 }
               } catch (err) {
@@ -1509,13 +1509,13 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
         const { sendOTPEmail } = require('./config/brevo');
         try {
           await sendOTPEmail(userData.email, otp, userData.name);
-          const otpMsg = formatResponseWithOptions(`📧 OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
+          const otpMsg = formatResponseWithOptions(`✅ OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
           await sendWhatsAppMessage(phoneNumber, otpMsg);
         } catch (emailError) {
           emailSent = false;
           console.error('Error sending OTP email via Brevo:', emailError);
           // Even if email send fails, allow user to verify with backup OTP from admin
-          const fallbackMsg = formatResponseWithOptions(`⚠️ Failed to send OTP via email. However, you can still complete registration in two ways:\n\n1️⃣ **Enter the OTP** (if you received it from an admin or notification)\n2️⃣ **Try again later** if email service recovers\n\nPlease reply with your 4-digit OTP code to verify your account.`, false);
+          const fallbackMsg = formatResponseWithOptions(`⚠️ **Failed to send OTP via email.** The email service is temporarily unavailable.\n\n✅ **Don't worry! You can still complete registration:**\n\n1️⃣ **From Admin**: Contact our support team - they can provide you a backup OTP code\n2️⃣ **Enter your code**: Reply with the 4-digit OTP code (from email or provided by admin)\n3️⃣ **Or retry**: Try registering again later when email service is restored\n\nYour registration data is secure. The OTP code we generated is stored in our database and is valid for 5 minutes.\n\nNeed help? Type 'support' to contact our team.`, false);
           await sendWhatsAppMessage(phoneNumber, fallbackMsg);
         }
 
