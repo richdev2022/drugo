@@ -511,6 +511,7 @@ const bookAppointment = async (userId, doctorId, dateTime) => {
 module.exports = {
   registerUser,
   loginUser,
+  listAllProductsPaginated,
   searchProducts,
   addToCart,
   placeOrder,
