@@ -55,6 +55,60 @@ const PORT = ENV.PORT || 3000;
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// Swagger / OpenAPI documentation setup (optional dependencies)
+let swaggerSpec = null;
+try {
+  swaggerSpec = require('./config/swagger');
+} catch (err) {
+  console.warn('Swagger spec not found or failed to load:', err.message);
+}
+
+try {
+  const swaggerUi = require('swagger-ui-express');
+  if (swaggerSpec) {
+    app.use('/api/docs/swagger.json', (req, res) => res.json(swaggerSpec));
+    app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
+    console.log('✓ Swagger UI mounted at /api/docs');
+  }
+} catch (err) {
+  console.warn('swagger-ui-express not installed. To enable docs install swagger-ui-express.');
+}
+
+// Postman collection download endpoint (converts OpenAPI to Postman v2.1 if converter is available)
+app.get('/api/docs/postman', async (req, res) => {
+  try {
+    if (!swaggerSpec) return res.status(404).json({ success: false, message: 'Swagger spec not available' });
+    const converter = (() => {
+      try { return require('openapi-to-postmanv2'); } catch (e) { return null; }
+    })();
+
+    if (!converter) {
+      // Fallback: return OpenAPI JSON for manual conversion
+      res.setHeader('Content-Disposition', 'attachment; filename="openapi.json"');
+      return res.json(swaggerSpec);
+    }
+
+    // Use converter to convert to Postman collection
+    const openapi = swaggerSpec;
+    converter.convert({ type: 'json', data: openapi }, {}, (err, conversionResult) => {
+      if (err || !conversionResult) {
+        console.error('OpenAPI -> Postman conversion failed:', err || conversionResult);
+        return res.status(500).json({ success: false, message: 'Conversion failed' });
+      }
+      if (!conversionResult.result || conversionResult.result.collection === undefined) {
+        return res.status(500).json({ success: false, message: 'Conversion returned invalid result' });
+      }
+      const collection = conversionResult.output[0].data;
+      res.setHeader('Content-Disposition', 'attachment; filename="postman_collection.json"');
+      res.setHeader('Content-Type', 'application/json');
+      res.send(JSON.stringify(collection, null, 2));
+    });
+  } catch (error) {
+    console.error('Error generating Postman collection:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Initialize database and then start server
 async function startServer() {
   try {
@@ -374,7 +428,7 @@ app.post('/webhook', async (req, res) => {
                     const orderId = match[1];
                     try {
                       const result = await savePrescription(orderId, uploadResult.url, extractedText);
-                      await sendWhatsAppMessage(phoneNumber, `✅ Prescription received and attached to order #${orderId}. Status: ${result.verificationStatus || 'Pending'}.`);
+                      await sendWhatsAppMessage(phoneNumber, `��� Prescription received and attached to order #${orderId}. Status: ${result.verificationStatus || 'Pending'}.`);
                     } catch (err) {
                       console.error('Attach prescription error:', err);
                       await sendWhatsAppMessage(phoneNumber, `Prescription uploaded but could not attach to order #${orderId}: ${err.message}. You can link it later by replying: rx ${orderId}`);
