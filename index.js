@@ -2335,11 +2335,14 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
 
       // ONLY NOW update session with user data (after successful registration)
       session.state = 'LOGGED_IN';
-      session.data.userId = result.userId;
-      session.data.token = result.token;
-      session.data.waitingForOTPVerification = false;
-      session.data.registrationData = null;
-      session.data.emailSendFailed = false;
+      session.data = {
+        userId: result.userId,
+        token: result.token,
+        waitingForOTPVerification: false,
+        registrationData: null,
+        emailSendFailed: false
+      };
+      session.changed('data', true);
       await session.save();
 
       // Notify support teams
