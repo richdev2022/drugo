@@ -304,6 +304,8 @@ module.exports = {
   verifyAdminPasswordResetOTP,
   completeAdminPasswordReset,
   createStaff,
+  createBackupOTP,
+  getOTPStatus,
   fetchTable,
   addRecord,
   updateRecord,
