@@ -112,18 +112,21 @@ const processMessage = async (message, phoneNumber, session) => {
       }
     }
 
-    // Help intent
-    if (/^(help|menu|what can you do|capabilities|features|\?)$/.test(lowerMessage)) {
+    // Help intent - with fuzzy matching
+    const helpKeywords = ['help', 'menu', 'what can you do', 'capabilities', 'features', '?'];
+    if (helpKeywords.some(kw => fuzzyMatch(lowerMessage, kw, 0.85) > 0.85 || lowerMessage === kw)) {
       return createResponse('help', {}, HELP_MESSAGE);
     }
 
-    // Logout intent
-    if (/^(logout|exit|bye|goodbye|sign out|log out)$/.test(lowerMessage)) {
+    // Logout intent - with fuzzy matching
+    const logoutKeywords = ['logout', 'exit', 'bye', 'goodbye', 'sign out', 'log out'];
+    if (logoutKeywords.some(kw => fuzzyMatch(lowerMessage, kw, 0.80) > 0.80 || lowerMessage === kw)) {
       return createResponse('logout', {}, null);
     }
 
-    // Greeting intents
-    if (/^(hello|hi|hey|greetings|good morning|good afternoon|good evening|start|begin)$/.test(lowerMessage)) {
+    // Greeting intents - with fuzzy matching
+    const greetingKeywords = ['hello', 'hi', 'hey', 'greetings', 'good morning', 'good afternoon', 'good evening', 'start', 'begin'];
+    if (greetingKeywords.some(kw => fuzzyMatch(lowerMessage, kw, 0.80) > 0.80 || lowerMessage === kw)) {
       return createResponse('greeting', {}, null);
     }
 
