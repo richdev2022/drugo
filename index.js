@@ -2475,50 +2475,41 @@ const handleDiagnosticTestSearch = async (phoneNumber, session, parameters) => {
     const { DiagnosticTest } = require('./models');
     const isLoggedIn = isAuthenticatedSession(session);
 
-    let tests;
+    const page = parseInt(parameters.page || '1', 10) || 1;
+    const pageSize = 5;
+    const where = { isActive: true };
+
     if (parameters.testType) {
-      // Search for specific test type
-      tests = await DiagnosticTest.findAll({
-        where: {
-          [sequelize.Op.or]: [
-            { name: { [sequelize.Op.iLike]: `%${parameters.testType}%` } },
-            { category: { [sequelize.Op.iLike]: `%${parameters.testType}%` } }
-          ],
-          isActive: true
-        },
-        limit: 10
-      });
-    } else {
-      // Get all available tests
-      tests = await DiagnosticTest.findAll({
-        where: { isActive: true },
-        limit: 10
-      });
+      where[sequelize.Op.or] = [
+        { name: { [sequelize.Op.iLike]: `%${parameters.testType}%` } },
+        { category: { [sequelize.Op.iLike]: `%${parameters.testType}%` } }
+      ];
     }
 
-    if (tests.length === 0) {
+    const offset = (page - 1) * pageSize;
+    const { rows, count } = await DiagnosticTest.findAndCountAll({ where, limit: pageSize, offset, order: [['id','ASC']] });
+
+    if (!rows || rows.length === 0) {
       const msg = formatResponseWithOptions(`❌ No diagnostic tests found${parameters.testType ? ` for "${parameters.testType}"` : ''}. Please try a different search or type 'help' for more options.`, isLoggedIn);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
 
-    // Store search results in session
-    session.data.diagnosticTestResults = tests;
+    const totalPages = Math.max(1, Math.ceil(count / pageSize));
+    session.data.diagnosticTestPagination = { currentPage: page, totalPages, pageSize };
+    session.data.diagnosticTestPageItems = rows;
+    session.data.lastDiagnosticSearch = { testType: parameters.testType || null };
     await session.save();
 
-    // Format response
-    let response = `🔬 *Available Diagnostic Tests:*\n\n`;
-    tests.forEach((test, index) => {
-      response += `${index + 1}. *${test.name}* - ₦${test.price}\n`;
-      response += `   Category: ${test.category}\n`;
-      response += `   Sample: ${test.sampleType || 'N/A'} | Time: ${test.resultTime || 'N/A'}\n`;
-      if (test.description) response += `   ${test.description}\n`;
-      response += `\n`;
+    const msg = buildPaginatedListMessage(rows, page, totalPages, '🔬 Diagnostic Tests', (test) => {
+      let s = `${test.name} - ₦${test.price}`;
+      s += `\n   Category: ${test.category}`;
+      s += `\n   Sample: ${test.sampleType || 'N/A'} | Time: ${test.resultTime || 'N/A'}`;
+      if (test.description) s += `\n   ${test.description}`;
+      return s;
     });
 
-    response += `Reply with the test number to book (e.g., "1" for the first test).`;
-    const msgWithOptions = formatResponseWithOptions(response, isLoggedIn);
-    await sendWhatsAppMessage(phoneNumber, msgWithOptions);
+    await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
   } catch (error) {
     console.error('Error searching diagnostic tests:', error);
     const msg = formatResponseWithOptions("❌ Error retrieving diagnostic tests. Please try again later.", isAuthenticatedSession(session));
