@@ -2364,7 +2364,11 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       otpRecord.usedAt = null;
       await otpRecord.save();
 
-      session.data.waitingForOTPVerification = true;
+      session.data = {
+        ...session.data,
+        waitingForOTPVerification: true
+      };
+      session.changed('data', true);
       await session.save();
     }
   } catch (error) {
