@@ -1352,7 +1352,7 @@ const handleGreeting = async (phoneNumber, session) => {
     console.log(`📤 Sending new user greeting`);
     await sendWhatsAppMessage(phoneNumber, greetingMessage);
   } else {
-    const welcomeBackMessage = `Welcome back! How can I assist you today? You can ask me about medicines, doctors, orders, or type 'help' for assistance.`;
+    const welcomeBackMessage = `Welcome back! Drugo here. How can I assist you today? You can ask me about medicines, doctors, orders, or type 'help' for assistance.`;
     console.log(`📤 Sending returning user welcome`);
     await sendWhatsAppMessage(phoneNumber, welcomeBackMessage);
   }
