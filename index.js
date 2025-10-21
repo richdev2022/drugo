@@ -68,7 +68,7 @@ try {
   if (swaggerSpec) {
     app.use('/api/docs/swagger.json', (req, res) => res.json(swaggerSpec));
     app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
-    console.log('✓ Swagger UI mounted at /api/docs');
+    console.log('��� Swagger UI mounted at /api/docs');
   }
 } catch (err) {
   console.warn('swagger-ui-express not installed. To enable docs install swagger-ui-express.');
@@ -1294,7 +1294,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
 
       case 'search_products':
         console.log(`🔍 Handling product search`);
-        if (!isLoggedIn && session.state !== 'NEW') {
+        if (!isLoggedIn) {
           await sendAuthRequiredMessage(phoneNumber);
         } else {
           await handleProductSearch(phoneNumber, session, parameters);
@@ -1330,7 +1330,11 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
 
       case 'search_doctors':
         console.log(`👨‍⚕️ Handling doctor search`);
-        await handleDoctorSearch(phoneNumber, session, parameters);
+        if (!isLoggedIn) {
+          await sendAuthRequiredMessage(phoneNumber);
+        } else {
+          await handleDoctorSearch(phoneNumber, session, parameters);
+        }
         break;
 
       case 'book_appointment':
@@ -1495,7 +1499,7 @@ const sendAuthRequiredMessage = async (phoneNumber) => {
 
 // Handle logout
 const handleLogout = async (phoneNumber, session) => {
-  console.log(`🔒 Handling logout for ${phoneNumber}`);
+  console.log(`���� Handling logout for ${phoneNumber}`);
   try {
     session.state = 'NEW';
     session.data = {};
@@ -1884,10 +1888,13 @@ const buildProductListMessage = (items, page, totalPages) => {
     if (product.imageUrl) message += `   Image: ${product.imageUrl}\n`;
     message += `\n`;
   });
-  const prevLabel = page > 1 ? `Previous (${page - 1})` : '';
-  const nextLabel = page < totalPages ? `Next (${page + 1})` : '';
-  const navLine = [prevLabel, nextLabel].filter(Boolean).join(' | ');
-  if (navLine) message += `${navLine}\nReply with Next, Previous, or the page number.`;
+
+  message += `📍 *Navigation:*\n`;
+  if (page > 1) message += `• Type "Previous" to go to page ${page - 1}\n`;
+  if (page < totalPages) message += `• Type "Next" to go to page ${page + 1}\n`;
+  message += `• Type a product number (1-${items.length}) to select a product\n`;
+  message += `• Type "add [number] [quantity]" to add to cart (e.g., "add 1 2")`;
+
   return message;
 };
 
@@ -2134,16 +2141,26 @@ const handleSupportRequest = async (phoneNumber, session, parameters) => {
 // Handle resend OTP
 const handleResendOTP = async (phoneNumber, session) => {
   try {
-    const registrationData = session.data && session.data.registrationData;
+    // Reload session to ensure we have the latest data
+    const freshSession = await sequelize.models.Session.findOne({
+      where: { phoneNumber }
+    });
+
+    let registrationData = (freshSession && freshSession.data && freshSession.data.registrationData) || (session.data && session.data.registrationData);
 
     if (!registrationData || !registrationData.email) {
       const msg = formatResponseWithOptions("❌ No active registration found. Please start over by typing 'register'.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
-      session.data.waitingForOTPVerification = false;
-      session.data.registrationData = null;
-      await session.save();
+      if (freshSession) {
+        freshSession.data.waitingForOTPVerification = false;
+        freshSession.data.registrationData = null;
+        await freshSession.save();
+      }
       return;
     }
+
+    // Update session reference to use fresh session for subsequent saves
+    session = freshSession || session;
 
     const { OTP } = require('./models');
     const { generateOTP, getOTPExpiry } = require('./utils/otp');
@@ -2205,16 +2222,27 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
   try {
     const { OTP } = require('./models');
     const otp = (otpCode || '').trim();
-    const registrationData = session.data && session.data.registrationData;
+
+    // Reload session from database to ensure we have the latest data
+    const freshSession = await sequelize.models.Session.findOne({
+      where: { phoneNumber }
+    });
+
+    let registrationData = (freshSession && freshSession.data && freshSession.data.registrationData) || (session.data && session.data.registrationData);
 
     if (!registrationData || !registrationData.email) {
       const msg = formatResponseWithOptions("❌ Registration session expired. Please start again by typing 'register'.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
-      session.data.waitingForOTPVerification = false;
-      session.data.registrationData = null;
-      await session.save();
+      if (freshSession) {
+        freshSession.data.waitingForOTPVerification = false;
+        freshSession.data.registrationData = null;
+        await freshSession.save();
+      }
       return;
     }
+
+    // Update session reference to use fresh session for subsequent saves
+    session = freshSession || session;
 
     // Verify OTP format - must be exactly 4 digits
     if (!/^\d{4}$/.test(otp)) {

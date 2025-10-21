@@ -3,7 +3,7 @@ const supportTeams = [
   {
     id: 1,
     name: 'General Support',
-    phoneNumber: process.env.SUPPORT_PHONE_NUMBER_1 || '08163349199',
+    phoneNumber: process.env.SUPPORT_PHONE_NUMBER_1 || '2347051583304',
     role: 'general',
     isActive: true
   },
