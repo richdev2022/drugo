@@ -509,6 +509,12 @@ const OTP = sequelize.define('OTP', {
     allowNull: true,
     comment: 'Admin name/ID who created this backup OTP'
   },
+  // Optional metadata to store encrypted registration snapshot or other contextual info
+  meta: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    comment: 'Optional metadata (e.g., encrypted registration data)'
+  },
   sendAttempts: {
     type: DataTypes.INTEGER,
     defaultValue: 0,
