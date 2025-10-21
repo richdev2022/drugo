@@ -249,6 +249,69 @@ app.post('/api/admin/reset-password', async (req, res) => {
   }
 });
 
+// Admin endpoint to create/provide backup OTP for user registration
+app.post('/api/admin/backup-otp', adminAuthMiddleware, async (req, res) => {
+  try {
+    const { email, action } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    if (action === 'create') {
+      // Admin can create a new backup OTP for a user
+      const { generateOTP, getOTPExpiry } = require('./utils/otp');
+      const { OTP } = require('./models');
+
+      const backupOtp = generateOTP();
+      const expiresAt = getOTPExpiry();
+
+      await OTP.create({
+        email: email.toLowerCase(),
+        code: backupOtp,
+        purpose: 'registration',
+        isBackupOTP: true,
+        createdByAdmin: req.admin.id,
+        expiresAt: expiresAt
+      });
+
+      return res.json({
+        success: true,
+        message: `Backup OTP created for ${email}`,
+        otp: backupOtp,
+        expiresAt: expiresAt,
+        note: 'Share this OTP with the user via secure channel. Valid for 5 minutes.'
+      });
+    } else if (action === 'list') {
+      // Admin can view pending OTPs for an email
+      const { OTP } = require('./models');
+
+      const otps = await OTP.findAll({
+        where: {
+          email: email.toLowerCase(),
+          purpose: 'registration',
+          isUsed: false
+        },
+        attributes: ['code', 'createdAt', 'expiresAt', 'isBackupOTP', 'createdByAdmin'],
+        order: [['createdAt', 'DESC']],
+        limit: 5
+      });
+
+      return res.json({
+        success: true,
+        email: email,
+        pendingOTPs: otps,
+        total: otps.length
+      });
+    } else {
+      return res.status(400).json({ success: false, message: 'Invalid action. Use "create" or "list"' });
+    }
+  } catch (error) {
+    console.error('Admin backup OTP error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
 // Protected admin management routes (require adminAuthMiddleware)
 app.post('/api/admin/staff', adminAuthMiddleware, async (req, res) => {
   try {
