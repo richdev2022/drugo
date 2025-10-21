@@ -1539,7 +1539,7 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
       message += "Example: 'register John Doe john@example.com mypassword'\n\n";
       message += "Requirements:\n";
       if (!parameters.name) message += "• Full name (at least 2 characters)\n";
-      if (!parameters.email) message += "��� Email address (valid email format)\n";
+      if (!parameters.email) message += "• Email address (valid email format)\n";
       if (!parameters.password) message += "• Password (at least 6 characters)\n";
 
       const msgWithOptions = formatResponseWithOptions(message, false);
@@ -2057,7 +2057,7 @@ const handleSupportRequest = async (phoneNumber, session, parameters) => {
 const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) => {
   try {
     const { OTP } = require('./models');
-    const otp = otpCode || '';
+    const otp = (otpCode || '').trim();
     const registrationData = session.data.registrationData;
 
     if (!registrationData) {
@@ -2068,7 +2068,14 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       return;
     }
 
-    // Verify OTP
+    // Verify OTP - must be exactly 4 digits
+    if (!/^\d{4}$/.test(otp)) {
+      const msg = formatResponseWithOptions("❌ Invalid OTP format. Please enter exactly 4 digits.", false);
+      await sendWhatsAppMessage(phoneNumber, msg);
+      return;
+    }
+
+    // Find the OTP record
     const otpRecord = await OTP.findOne({
       where: {
         email: registrationData.email,
@@ -2079,7 +2086,7 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
     });
 
     if (!otpRecord) {
-      const msg = formatResponseWithOptions("❌ Invalid OTP. Please try again or type 'help' for assistance.", false);
+      const msg = formatResponseWithOptions("❌ Invalid OTP. The code you entered doesn't match. Please try again or contact support for assistance.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
@@ -2109,6 +2116,7 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       session.data.token = result.token;
       session.data.waitingForOTPVerification = false;
       session.data.registrationData = null;
+      session.data.emailSendFailed = false;
       await session.save();
 
       // Notify support teams
