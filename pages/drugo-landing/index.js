@@ -1,6 +1,6 @@
 import Head from 'next/head';
 
-const LOGO_URL = 'https://cdn.builder.io/api/v1/image/assets%2F89edfb014b264aa1be87a238c6cee9b8%2Feca24978b49246d5ade23b106d240dc8?format=webp&width=800';
+const LOGO_URL = 'https://cdn.builder.io/api/v1/image/assets%2F89edfb014b264aa1be87a238c6cee9b8%2F26c24c9523574d838f55b9611e7fecf7?format=webp&width=800';
 
 function formatPhoneForWa(raw){
   if (!raw) return '';
