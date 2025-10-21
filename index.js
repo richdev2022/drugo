@@ -1294,7 +1294,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
 
       case 'search_products':
         console.log(`🔍 Handling product search`);
-        if (!isLoggedIn && session.state !== 'NEW') {
+        if (!isLoggedIn) {
           await sendAuthRequiredMessage(phoneNumber);
         } else {
           await handleProductSearch(phoneNumber, session, parameters);
