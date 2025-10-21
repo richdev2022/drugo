@@ -1330,7 +1330,11 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
 
       case 'search_doctors':
         console.log(`👨‍⚕️ Handling doctor search`);
-        await handleDoctorSearch(phoneNumber, session, parameters);
+        if (!isLoggedIn) {
+          await sendAuthRequiredMessage(phoneNumber);
+        } else {
+          await handleDoctorSearch(phoneNumber, session, parameters);
+        }
         break;
 
       case 'book_appointment':
@@ -1495,7 +1499,7 @@ const sendAuthRequiredMessage = async (phoneNumber) => {
 
 // Handle logout
 const handleLogout = async (phoneNumber, session) => {
-  console.log(`🔒 Handling logout for ${phoneNumber}`);
+  console.log(`���� Handling logout for ${phoneNumber}`);
   try {
     session.state = 'NEW';
     session.data = {};
