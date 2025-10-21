@@ -42,7 +42,7 @@ const CallbackPage = () => {
     <div style={{ fontFamily: 'Poppins, sans-serif', backgroundColor: '#f8f9fa', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       <Head>
         <title>{displayMessage}</title>
-        <link rel="icon" href={logoUrl} />
+        <link rel="icon" href="/favicon.svg" />
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet" />
       </Head>
 
