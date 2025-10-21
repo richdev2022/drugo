@@ -3,6 +3,7 @@ const CryptoJS = require('crypto-js');
 const { User, Product, Doctor, Order, OrderItem, Appointment } = require('../models');
 const { encryptData } = require('./security');
 const { isValidEmail, isValidPhoneNumber, sanitizeInput } = require('../utils/validation');
+const { uploadImageFromUrl } = require('./cloudinary');
 
 // Drugs.ng API client with timeout
 const drugsngAPI = axios.create({
@@ -12,6 +13,27 @@ const drugsngAPI = axios.create({
   },
   timeout: 10000 // 10 second timeout
 });
+
+const generatePlaceholderUrl = (name) => {
+  const text = encodeURIComponent((name || 'Medicine').substring(0, 20));
+  return `https://via.placeholder.com/512x512.png?text=${text}`;
+};
+
+const ensureDbProductHasImage = async (product) => {
+  if (product.imageUrl) return product.imageUrl;
+  try {
+    const uploaded = await uploadImageFromUrl(generatePlaceholderUrl(product.name), {
+      folder: 'drugs-ng/products/medicines',
+      filename: `product-${product.id}-${Date.now()}`
+    });
+    product.imageUrl = uploaded.url;
+    await product.save();
+    return product.imageUrl;
+  } catch (e) {
+    console.warn('Placeholder upload failed:', e.message);
+    return null;
+  }
+};
 
 // Register new user in both PostgreSQL and Drugs.ng API
 const registerUser = async (userData) => {
