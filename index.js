@@ -26,6 +26,7 @@ const { encryptData, decryptData, generateToken } = require('./services/security
 const { handleApiError, handleDbError, handleValidationError, createErrorResponse, createSuccessResponse } = require('./utils/errorHandler');
 const { checkRateLimit } = require('./utils/rateLimiter');
 const { isValidRegistrationData, isValidLoginData, sanitizeInput, normalizePhoneNumber } = require('./utils/validation');
+const { parseOrderIdFromText, isValidOrderId } = require('./utils/orderParser');
 const {
   notifySupportTeams,
   notifySupportTeam,
