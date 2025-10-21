@@ -1,3 +1,77 @@
+// Simple fuzzy matching function for misspellings and partial matches
+const fuzzyMatch = (input, target, minSimilarity = 0.7) => {
+  const inp = input.toLowerCase().trim();
+  const tgt = target.toLowerCase().trim();
+
+  // Exact match
+  if (inp === tgt) return 1;
+
+  // Check if one contains the other
+  if (inp.includes(tgt) || tgt.includes(inp)) return 0.9;
+
+  // Levenshtein distance-based similarity
+  const maxLen = Math.max(inp.length, tgt.length);
+  if (maxLen === 0) return 1;
+
+  const matrix = Array(inp.length + 1).fill(null).map(() => Array(tgt.length + 1).fill(0));
+
+  for (let i = 0; i <= inp.length; i++) matrix[i][0] = i;
+  for (j = 0; j <= tgt.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= inp.length; i++) {
+    for (let j = 1; j <= tgt.length; j++) {
+      const cost = inp[i - 1] === tgt[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  const distance = matrix[inp.length][tgt.length];
+  const similarity = 1 - (distance / maxLen);
+  return similarity >= minSimilarity ? similarity : 0;
+};
+
+// Extract keywords from long text for intent detection
+const extractKeywords = (text) => {
+  const words = text.toLowerCase().split(/\s+/);
+  const productKeywords = ['medicine', 'drug', 'medication', 'pill', 'tablet', 'paracetamol', 'insulin', 'amoxicillin', 'blood', 'pressure', 'monitor', 'vitamin'];
+  const doctorKeywords = ['doctor', 'physician', 'specialist', 'cardiologist', 'pediatrician', 'dermatologist', 'neurologist', 'consultant'];
+  const orderKeywords = ['order', 'buy', 'purchase', 'checkout', 'cart', 'add'];
+  const appointmentKeywords = ['appointment', 'book', 'schedule', 'consult', 'visit', 'meeting'];
+  const trackKeywords = ['track', 'status', 'where', 'delivery', 'shipped', 'arrive'];
+
+  const foundKeywords = {
+    products: [],
+    doctors: [],
+    orders: [],
+    appointments: [],
+    tracking: []
+  };
+
+  words.forEach(word => {
+    productKeywords.forEach(kw => {
+      if (fuzzyMatch(word, kw, 0.75) > 0.75) foundKeywords.products.push(word);
+    });
+    doctorKeywords.forEach(kw => {
+      if (fuzzyMatch(word, kw, 0.75) > 0.75) foundKeywords.doctors.push(word);
+    });
+    orderKeywords.forEach(kw => {
+      if (fuzzyMatch(word, kw, 0.75) > 0.75) foundKeywords.orders.push(word);
+    });
+    appointmentKeywords.forEach(kw => {
+      if (fuzzyMatch(word, kw, 0.75) > 0.75) foundKeywords.appointments.push(word);
+    });
+    trackKeywords.forEach(kw => {
+      if (fuzzyMatch(word, kw, 0.75) > 0.75) foundKeywords.tracking.push(word);
+    });
+  });
+
+  return foundKeywords;
+};
+
 const FEATURE_COMMANDS = {
   '1': { intent: 'search_products', label: 'Search Medicines' },
   '2': { intent: 'search_doctors', label: 'Find Doctors' },
