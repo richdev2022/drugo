@@ -242,6 +242,10 @@ const Order = sequelize.define('Order', {
   drugsngOrderId: {
     type: DataTypes.STRING,
     allowNull: true
+  },
+  hasPrescription: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
   }
 }, {
   tableName: 'orders'
