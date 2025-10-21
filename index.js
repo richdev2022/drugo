@@ -2523,51 +2523,42 @@ const handleHealthcareProductBrowse = async (phoneNumber, session, parameters) =
     const { HealthcareProduct } = require('./models');
     const isLoggedIn = isAuthenticatedSession(session);
 
-    let products;
+    const page = parseInt(parameters.page || '1', 10) || 1;
+    const pageSize = 5;
+    const where = { isActive: true };
+
     if (parameters.category) {
-      // Search for specific category
-      products = await HealthcareProduct.findAll({
-        where: {
-          [sequelize.Op.or]: [
-            { name: { [sequelize.Op.iLike]: `%${parameters.category}%` } },
-            { category: { [sequelize.Op.iLike]: `%${parameters.category}%` } }
-          ],
-          isActive: true
-        },
-        limit: 10
-      });
-    } else {
-      // Get all available products
-      products = await HealthcareProduct.findAll({
-        where: { isActive: true },
-        limit: 10
-      });
+      where[sequelize.Op.or] = [
+        { name: { [sequelize.Op.iLike]: `%${parameters.category}%` } },
+        { category: { [sequelize.Op.iLike]: `%${parameters.category}%` } }
+      ];
     }
 
-    if (products.length === 0) {
+    const offset = (page - 1) * pageSize;
+    const { rows, count } = await HealthcareProduct.findAndCountAll({ where, limit: pageSize, offset, order: [['id','ASC']] });
+
+    if (!rows || rows.length === 0) {
       const msg = formatResponseWithOptions(`❌ No healthcare products found${parameters.category ? ` in "${parameters.category}"` : ''}. Please try a different search or type 'help' for more options.`, isLoggedIn);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
 
-    // Store search results in session
-    session.data.healthcareProductResults = products;
+    const totalPages = Math.max(1, Math.ceil(count / pageSize));
+    session.data.healthcareProductPagination = { currentPage: page, totalPages, pageSize };
+    session.data.healthcareProductPageItems = rows;
+    session.data.lastHealthcareProductSearch = { category: parameters.category || null };
     await session.save();
 
-    // Format response
-    let response = `🛒 *Available Healthcare Products:*\n\n`;
-    products.forEach((product, index) => {
-      response += `${index + 1}. *${product.name}* - ₦${product.price}\n`;
-      response += `   Category: ${product.category}${product.brand ? ` | Brand: ${product.brand}` : ''}\n`;
-      response += `   Stock: ${product.stock > 0 ? product.stock + ' units' : 'Out of stock'}\n`;
-      if (product.description) response += `   ${product.description}\n`;
-      if (product.usage) response += `   Usage: ${product.usage}\n`;
-      response += `\n`;
+    const msg = buildPaginatedListMessage(rows, page, totalPages, '🛒 Healthcare Products', (product) => {
+      let s = `${product.name} - ₦${product.price}`;
+      s += `\n   Category: ${product.category}${product.brand ? ` | Brand: ${product.brand}` : ''}`;
+      s += `\n   Stock: ${product.stock > 0 ? product.stock + ' units' : 'Out of stock'}`;
+      if (product.description) s += `\n   ${product.description}`;
+      if (product.usage) s += `\n   Usage: ${product.usage}`;
+      return s;
     });
 
-    response += `Reply with the product number to add to cart (e.g., "1" for the first product).`;
-    const msgWithOptions = formatResponseWithOptions(response, isLoggedIn);
-    await sendWhatsAppMessage(phoneNumber, msgWithOptions);
+    await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
   } catch (error) {
     console.error('Error browsing healthcare products:', error);
     const msg = formatResponseWithOptions("❌ Error retrieving healthcare products. Please try again later.", isAuthenticatedSession(session));
