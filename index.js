@@ -1232,12 +1232,16 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
     }
     if (targetPage) {
       const pageData = await listAllProductsPaginated(targetPage, pageSize);
-      session.data.productPagination = {
-        currentPage: pageData.page,
-        totalPages: pageData.totalPages,
-        pageSize: pageData.pageSize
+      session.data = {
+        ...session.data,
+        productPagination: {
+          currentPage: pageData.page,
+          totalPages: pageData.totalPages,
+          pageSize: pageData.pageSize
+        },
+        productPageItems: pageData.items
       };
-      session.data.productPageItems = pageData.items;
+      session.changed('data', true);
       await session.save();
       const isLoggedIn = session.state === 'LOGGED_IN';
       const msg = buildProductListMessage(pageData.items, pageData.page, pageData.totalPages);
@@ -1371,7 +1375,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
         break;
 
       case 'diagnostic_tests':
-        console.log(`🔬 Handling diagnostic tests search`);
+        console.log(`���� Handling diagnostic tests search`);
         if (!isLoggedIn) {
           await sendAuthRequiredMessage(phoneNumber);
         } else {
@@ -2126,7 +2130,7 @@ const handleHelp = async (phoneNumber, isLoggedIn) => {
 1️⃣ *Search Medicines* - Type "1" or "Find paracetamol"
 2️⃣ *Find Doctors* - Type "2" or "Find a cardiologist"
 3️⃣ *Track Orders* - Type "3" or "Track 12345"
-4️⃣ *Book Appointment* - Type "4" or "Book a doctor"
+4️��� *Book Appointment* - Type "4" or "Book a doctor"
 5️⃣ *Place Order* - Type "5" or "Order medicines"
 6️⃣ *Customer Support* - Type "6" or "Connect me to support"
 7️⃣ *Upload Prescription* (image or PDF) - Send your file. To auto-attach, add a caption with your Order ID, e.g.: rx 12345 (also accepts "order 12345" or "prescription 12345"). Find your Order ID in your order confirmation message (e.g., "Order ID: #12345"). If unsure, type "support" and we’ll help link it.
