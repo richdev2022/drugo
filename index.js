@@ -1570,9 +1570,13 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
       // NOTE: Do NOT store full user data in session yet. Only store temporary registration data.
       // The user will only be created after successful OTP verification.
       session.state = 'REGISTERING';
-      session.data.registrationData = userData;
-      session.data.userId = null;
-      session.data.token = null;
+      session.data = {
+        ...session.data,
+        registrationData: userData,
+        userId: null,
+        token: null
+      };
+      session.changed('data', true);
       await session.save();
 
       // Request OTP to be sent to email
