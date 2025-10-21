@@ -63,6 +63,64 @@ const User = sequelize.define('User', {
   tableName: 'users'
 });
 
+// Admin Model (for internal staff and owner)
+const Admin = sequelize.define('Admin', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  name: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  email: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true,
+    validate: { isEmail: true }
+  },
+  password: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  role: {
+    type: DataTypes.ENUM('Owner','Admin','CustomerSupport','Auditor'),
+    allowNull: false,
+    defaultValue: 'Admin'
+  },
+  isActive: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true
+  },
+  token: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  tokenExpiry: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  lastLogin: {
+    type: DataTypes.DATE,
+    allowNull: true
+  }
+}, {
+  hooks: {
+    beforeCreate: async (admin) => {
+      if (admin.password) {
+        admin.password = await bcryptjs.hash(admin.password, 10);
+      }
+    },
+    beforeUpdate: async (admin) => {
+      if (admin.changed('password')) {
+        admin.password = await bcryptjs.hash(admin.password, 10);
+      }
+    }
+  },
+  tableName: 'admins'
+});
+
 // Product Model
 const Product = sequelize.define('Product', {
   id: {
