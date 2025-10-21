@@ -443,9 +443,9 @@ const handlePaymentIntent = (message) => {
   const parameters = {};
   const lowerMessage = message.toLowerCase();
 
-  const numbers = message.match(/\d+/g);
-  if (numbers && numbers.length > 0) {
-    parameters.orderId = numbers[0];
+  const parsed = parseOrderIdFromText(message);
+  if (parsed) {
+    parameters.orderId = parsed;
   }
 
   if (/flutterwave/i.test(lowerMessage)) {
