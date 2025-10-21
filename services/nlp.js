@@ -234,7 +234,7 @@ const createResponse = (intent, parameters = {}, fulfillmentText = null, source 
     search_products: "What medicine or product are you looking for?",
     add_to_cart: 'Please specify the product number and quantity.\n\nExample: add 1 2 (adds 2 units of product 1)',
     place_order: 'I can help you place an order. Please provide your delivery address and payment method.',
-    track_order: 'Please provide your order ID to track it.\n\nExample: track 12345',
+    track_order: 'Please provide your order ID to track it.\n\nExample: track 12345 (or send part of your payment reference like drugsng-12345-... or caption: rx 12345)',
     search_doctors: 'What type of doctor are you looking for? (e.g., cardiologist, pediatrician)',
     book_appointment: 'I can help you book an appointment. Please provide the doctor and your preferred date and time.',
     payment: 'I can help you make a payment. Please provide your order ID and preferred payment method.',
