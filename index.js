@@ -1884,10 +1884,13 @@ const buildProductListMessage = (items, page, totalPages) => {
     if (product.imageUrl) message += `   Image: ${product.imageUrl}\n`;
     message += `\n`;
   });
-  const prevLabel = page > 1 ? `Previous (${page - 1})` : '';
-  const nextLabel = page < totalPages ? `Next (${page + 1})` : '';
-  const navLine = [prevLabel, nextLabel].filter(Boolean).join(' | ');
-  if (navLine) message += `${navLine}\nReply with Next, Previous, or the page number.`;
+
+  message += `📍 *Navigation:*\n`;
+  if (page > 1) message += `• Type "Previous" to go to page ${page - 1}\n`;
+  if (page < totalPages) message += `• Type "Next" to go to page ${page + 1}\n`;
+  message += `• Type a product number (1-${items.length}) to select a product\n`;
+  message += `• Type "add [number] [quantity]" to add to cart (e.g., "add 1 2")`;
+
   return message;
 };
 
