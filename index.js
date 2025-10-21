@@ -1963,7 +1963,17 @@ const handleTrackOrder = async (phoneNumber, session, parameters) => {
       return;
     }
 
-    const orderId = sanitizeInput(parameters.orderId);
+    // Parse and validate order id
+    const rawInput = parameters.orderId || '';
+    const parsed = parseOrderIdFromText(rawInput) || rawInput;
+    const orderId = sanitizeInput(parsed);
+
+    if (!isValidOrderId(orderId)) {
+      const msg = formatResponseWithOptions("❌ The order ID you provided doesn't look valid. Please provide a numeric Order ID (e.g., 12345) or a reference like 'drugsng-12345-...'.\n\nExample: track 12345", isLoggedIn);
+      await sendWhatsAppMessage(phoneNumber, msg);
+      return;
+    }
+
     const orderDetails = await trackOrder(orderId);
 
     if (!orderDetails) {
