@@ -1348,7 +1348,7 @@ const handleLogout = async (phoneNumber, session) => {
 const handleGreeting = async (phoneNumber, session) => {
   console.log(`👋 Handling greeting for ${phoneNumber}, session state: ${session.state}`);
   if (session.state === 'NEW') {
-    const greetingMessage = "Welcome to Drugs.ng! Your health companion in Africa. Are you a new user? Reply 'register' to sign up or 'login' if you already have an account.";
+    const greetingMessage = "Welcome to Drugs.ng! I'm Drugo — your helpful assistant. Are you a new user? Reply 'register' to sign up or 'login' if you already have an account."
     console.log(`📤 Sending new user greeting`);
     await sendWhatsAppMessage(phoneNumber, greetingMessage);
   } else {
