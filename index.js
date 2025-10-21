@@ -1939,7 +1939,7 @@ const handleTrackOrder = async (phoneNumber, session, parameters) => {
     message += `*Items:*\n`;
     if (orderDetails.items && orderDetails.items.length > 0) {
       orderDetails.items.forEach(item => {
-        message += `• ${item.name} x${item.quantity} = ���${(item.price * item.quantity).toLocaleString()}\n`;
+        message += `• ${item.name} x${item.quantity} = ₦${(item.price * item.quantity).toLocaleString()}\n`;
       });
     } else {
       message += `• No items found\n`;
@@ -2151,12 +2151,18 @@ const handleResendOTP = async (phoneNumber, session) => {
       where: { phoneNumber }
     });
 
+    // Ensure freshSession.data is always an object
+    if (freshSession && (!freshSession.data || typeof freshSession.data !== 'object')) {
+      freshSession.data = {};
+    }
+
     let registrationData = (freshSession && freshSession.data && freshSession.data.registrationData) || (session.data && session.data.registrationData);
 
     if (!registrationData || !registrationData.email) {
       const msg = formatResponseWithOptions("❌ No active registration found. Please start over by typing 'register'.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
       if (freshSession) {
+        freshSession.data = freshSession.data || {};
         freshSession.data.waitingForOTPVerification = false;
         freshSession.data.registrationData = null;
         await freshSession.save();
