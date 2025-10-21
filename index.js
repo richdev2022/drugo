@@ -68,7 +68,7 @@ try {
   if (swaggerSpec) {
     app.use('/api/docs/swagger.json', (req, res) => res.json(swaggerSpec));
     app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
-    console.log('✓ Swagger UI mounted at /api/docs');
+    console.log('��� Swagger UI mounted at /api/docs');
   }
 } catch (err) {
   console.warn('swagger-ui-express not installed. To enable docs install swagger-ui-express.');
@@ -2205,16 +2205,27 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
   try {
     const { OTP } = require('./models');
     const otp = (otpCode || '').trim();
-    const registrationData = session.data && session.data.registrationData;
+
+    // Reload session from database to ensure we have the latest data
+    const freshSession = await sequelize.models.Session.findOne({
+      where: { phoneNumber }
+    });
+
+    let registrationData = (freshSession && freshSession.data && freshSession.data.registrationData) || (session.data && session.data.registrationData);
 
     if (!registrationData || !registrationData.email) {
       const msg = formatResponseWithOptions("❌ Registration session expired. Please start again by typing 'register'.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
-      session.data.waitingForOTPVerification = false;
-      session.data.registrationData = null;
-      await session.save();
+      if (freshSession) {
+        freshSession.data.waitingForOTPVerification = false;
+        freshSession.data.registrationData = null;
+        await freshSession.save();
+      }
       return;
     }
+
+    // Update session reference to use fresh session for subsequent saves
+    session = freshSession || session;
 
     // Verify OTP format - must be exactly 4 digits
     if (!/^\d{4}$/.test(otp)) {
