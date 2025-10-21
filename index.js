@@ -1273,6 +1273,33 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
     }
   }
 
+  // Pagination navigation for doctors list
+  if (session.data && session.data.doctorPagination) {
+    const { currentPage, totalPages, pageSize } = session.data.doctorPagination;
+    const targetPage = parseNavigationCommand(messageText, currentPage, totalPages);
+    if (targetPage) {
+      const lastSearch = session.data.lastDoctorSearch || {};
+      const pageData = await searchDoctorsPaginated(lastSearch.specialty || '', lastSearch.location || '', targetPage, pageSize);
+      session.data.doctorPagination = {
+        currentPage: pageData.page,
+        totalPages: pageData.totalPages,
+        pageSize: pageData.pageSize
+      };
+      session.data.doctorPageItems = pageData.items;
+      await session.save();
+      const isLoggedIn = isAuthenticatedSession(session);
+      const msg = buildPaginatedListMessage(pageData.items, pageData.page, pageData.totalPages, '👨‍⚕️ Doctors', (doctor) => {
+        let s = `Dr. ${doctor.name}`;
+        if (doctor.specialty) s += `\n   Specialty: ${doctor.specialty}`;
+        if (doctor.location) s += `\n   Location: ${doctor.location}`;
+        if (doctor.rating) s += `\n   Rating: ${doctor.rating}/5`;
+        return s;
+      });
+      await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
+      return;
+    }
+  }
+
   // Check if waiting for OTP verification during registration
   // This must bypass NLP to prevent dynamic OTP codes from being misinterpreted
   if (session.state === 'REGISTERING' || (session.data && session.data.waitingForOTPVerification)) {
