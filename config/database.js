@@ -4,32 +4,44 @@ require('dotenv').config();
 // Support both DATABASE_URL (Neon) and individual DB variables
 let sequelize;
 
-if (process.env.DATABASE_URL) {
+const isValidDatabaseUrl = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  return /^postgres(?:ql)?:\/\//i.test(url.trim());
+};
+
+if (isValidDatabaseUrl(process.env.DATABASE_URL)) {
   // Use Neon connection string with optimized settings for serverless
-  sequelize = new Sequelize(process.env.DATABASE_URL, {
-    dialect: 'postgres',
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    pool: {
-      max: 5,
-      min: 0,
-      acquire: 60000,
-      idle: 10000
-    },
-    dialectOptions: {
-      ssl: {
-        require: true,
-        rejectUnauthorized: false
+  try {
+    sequelize = new Sequelize(process.env.DATABASE_URL, {
+      dialect: 'postgres',
+      logging: process.env.NODE_ENV === 'development' ? console.log : false,
+      pool: {
+        max: 5,
+        min: 0,
+        acquire: 60000,
+        idle: 10000
       },
-      keepAlive: true,
-      connectTimeout: 60000 // 60 seconds
-    },
-    ssl: true,
-    native: false,
-    retry: {
-      max: 3
-    }
-  });
-} else {
+      dialectOptions: {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false
+        },
+        keepAlive: true,
+        connectTimeout: 60000 // 60 seconds
+      },
+      ssl: true,
+      native: false,
+      retry: {
+        max: 3
+      }
+    });
+    console.log('✓ Using DATABASE_URL for PostgreSQL connection');
+  } catch (err) {
+    console.error('Invalid DATABASE_URL provided, falling back to individual DB vars:', err.message);
+  }
+}
+
+if (!sequelize) {
   // Fall back to individual DB variables
   sequelize = new Sequelize(
     process.env.DB_NAME || 'drugsng_fallback',
@@ -48,6 +60,7 @@ if (process.env.DATABASE_URL) {
       }
     }
   );
+  console.log('✓ Using individual DB vars for PostgreSQL connection');
 }
 
 // Test connection
