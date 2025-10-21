@@ -1504,21 +1504,30 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
           expiresAt: expiresAt
         });
 
-        // Send OTP email
+        // Try to send OTP email
+        let emailSent = true;
         const { sendOTPEmail } = require('./config/brevo');
-        await sendOTPEmail(userData.email, otp, userData.name);
+        try {
+          await sendOTPEmail(userData.email, otp, userData.name);
+          const otpMsg = formatResponseWithOptions(`📧 OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
+          await sendWhatsAppMessage(phoneNumber, otpMsg);
+        } catch (emailError) {
+          emailSent = false;
+          console.error('Error sending OTP email via Brevo:', emailError);
+          // Even if email send fails, allow user to verify with backup OTP from admin
+          const fallbackMsg = formatResponseWithOptions(`⚠️ Failed to send OTP via email. However, you can still complete registration in two ways:\n\n1️⃣ **Enter the OTP** (if you received it from an admin or notification)\n2️⃣ **Try again later** if email service recovers\n\nPlease reply with your 4-digit OTP code to verify your account.`, false);
+          await sendWhatsAppMessage(phoneNumber, fallbackMsg);
+        }
 
-        const otpMsg = formatResponseWithOptions(`📧 OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
-        await sendWhatsAppMessage(phoneNumber, otpMsg);
-
-        // Store that we're waiting for OTP verification
+        // Store that we're waiting for OTP verification (even if email send failed)
         session.data.waitingForOTPVerification = true;
         session.data.registrationAttempts = (session.data.registrationAttempts || 0) + 1;
+        session.data.emailSendFailed = !emailSent;
         await session.save();
 
       } catch (error) {
-        console.error('Error sending OTP:', error);
-        const errorMsg = formatResponseWithOptions(`❌ Failed to send OTP. Please try again.`, false);
+        console.error('Error in OTP generation/verification setup:', error);
+        const errorMsg = formatResponseWithOptions(`❌ Failed to process registration. Please try again later or contact support.`, false);
         await sendWhatsAppMessage(phoneNumber, errorMsg);
         session.data.registrationData = null;
         session.data.waitingForOTPVerification = false;
@@ -1530,7 +1539,7 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
       message += "Example: 'register John Doe john@example.com mypassword'\n\n";
       message += "Requirements:\n";
       if (!parameters.name) message += "• Full name (at least 2 characters)\n";
-      if (!parameters.email) message += "• Email address (valid email format)\n";
+      if (!parameters.email) message += "��� Email address (valid email format)\n";
       if (!parameters.password) message += "• Password (at least 6 characters)\n";
 
       const msgWithOptions = formatResponseWithOptions(message, false);
