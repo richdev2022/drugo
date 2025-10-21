@@ -171,10 +171,24 @@ app.post('/api/admin/staff', adminAuthMiddleware, async (req, res) => {
   }
 });
 
+// Export endpoint must come before generic :table route
+app.get('/api/admin/:table/export', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const result = await adminService.exportTable(table, req.query, req.admin);
+    res.setHeader('Content-Type', result.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.send(result.payload);
+  } catch (error) {
+    console.error('Admin export table error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
 app.get('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
   try {
     const table = req.params.table;
-    const result = await adminService.fetchTable(table, req.query);
+    const result = await adminService.fetchTable(table, req.query, req.admin);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('Admin fetch table error:', error.message);
@@ -185,7 +199,7 @@ app.get('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
 app.post('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
   try {
     const table = req.params.table;
-    const created = await adminService.addRecord(table, req.body);
+    const created = await adminService.addRecord(table, req.body, req.admin);
     res.json({ success: true, data: created });
   } catch (error) {
     console.error('Admin add record error:', error.message);
@@ -197,7 +211,7 @@ app.put('/api/admin/:table/:id', adminAuthMiddleware, async (req, res) => {
   try {
     const table = req.params.table;
     const id = req.params.id;
-    const updated = await adminService.updateRecord(table, id, req.body);
+    const updated = await adminService.updateRecord(table, id, req.body, req.admin);
     res.json({ success: true, data: updated });
   } catch (error) {
     console.error('Admin update record error:', error.message);
@@ -209,7 +223,7 @@ app.delete('/api/admin/:table/:id', adminAuthMiddleware, async (req, res) => {
   try {
     const table = req.params.table;
     const id = req.params.id;
-    const result = await adminService.deleteRecord(table, id);
+    const result = await adminService.deleteRecord(table, id, req.admin);
     res.json(result);
   } catch (error) {
     console.error('Admin delete record error:', error.message);
@@ -1183,7 +1197,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
         break;
 
       case 'diagnostic_tests':
-        console.log(`�� Handling diagnostic tests search`);
+        console.log(`🔬 Handling diagnostic tests search`);
         if (!isLoggedIn) {
           await sendAuthRequiredMessage(phoneNumber);
         } else {
