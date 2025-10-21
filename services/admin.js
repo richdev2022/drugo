@@ -8,6 +8,36 @@ const ADMIN_TOKEN_EXPIRY_MINUTES = parseInt(process.env.ADMIN_TOKEN_EXPIRY_MINUT
 
 const generateToken = () => crypto.randomBytes(32).toString('hex');
 
+// Basic role-permission mapping
+const hasPermission = (role, action, table) => {
+  if (!role) return false;
+  if (role === 'Owner') return true;
+
+  // Normalize table name for checks
+  const t = (table || '').toLowerCase();
+
+  const readOnlyTables = ['users','orders','order','orderitem','supportteam','supportchat','prescription','diagnosticbooking','diagnostictest','healthcareproduct','doctor','product','cart','appointment'];
+
+  switch (role) {
+    case 'Admin':
+      // Admin can read/export everything and manage most tables
+      if (action === 'read' || action === 'export') return true;
+      if (action === 'create' || action === 'update' || action === 'delete') return true;
+      if (action === 'manageStaff') return true;
+      return false;
+    case 'CustomerSupport':
+      if (action === 'read') return true; // can read across tables
+      if (action === 'export') return t === 'supportchat' || t === 'supportteam' || t === 'orders' || t === 'users';
+      return false; // no write/delete
+    case 'Auditor':
+      // Auditor strictly read-only, can export any
+      if (action === 'read' || action === 'export') return true;
+      return false;
+    default:
+      return false;
+  }
+};
+
 // Admin login - returns token
 const adminLogin = async (email, password) => {
   if (!email || !password) throw new Error('Email and password are required');
@@ -78,6 +108,15 @@ const completeAdminPasswordReset = async (email, otp, newPassword) => {
 // Create staff user
 const createStaff = async ({ name, email, password, role = 'Admin' }, createdBy) => {
   if (!name || !email || !password) throw new Error('Name, email and password are required');
+  if (!createdBy || !hasPermission(createdBy.role, 'manageStaff', 'Admin')) {
+    throw new Error('Permission denied');
+  }
+  if (!['Owner','Admin','CustomerSupport','Auditor'].includes(role)) {
+    throw new Error('Invalid role');
+  }
+  if (createdBy.role !== 'Owner' && role === 'Owner') {
+    throw new Error('Only Owner can create Owner');
+  }
   const existing = await Admin.findOne({ where: { email: email.toLowerCase() } });
   if (existing) throw new Error('Admin with this email already exists');
   const admin = await Admin.create({ name, email: email.toLowerCase(), password, role, isActive: true });
@@ -85,16 +124,17 @@ const createStaff = async ({ name, email, password, role = 'Admin' }, createdBy)
 };
 
 // Generic fetch with pagination, filtering, search, date range, export
-const fetchTable = async (tableName, query = {}) => {
+const fetchTable = async (tableName, query = {}, admin = null) => {
   const Model = sequelize.models[tableName];
   if (!Model) throw new Error('Table not found');
+  if (!admin || !hasPermission(admin.role, 'read', tableName)) throw new Error('Permission denied');
 
   const page = Math.max(1, parseInt(query.page || '1', 10));
   const pageSize = Math.min(100, Math.max(1, parseInt(query.pageSize || '20', 10)));
   const offset = (page - 1) * pageSize;
 
   const where = {};
-  // simple search across name/email fields
+  // simple search across common fields
   if (query.search) {
     const { Op } = require('sequelize');
     const term = `%${query.search}%`;
@@ -117,17 +157,19 @@ const fetchTable = async (tableName, query = {}) => {
 };
 
 // Generic add record
-const addRecord = async (tableName, data) => {
+const addRecord = async (tableName, data, admin = null) => {
   const Model = sequelize.models[tableName];
   if (!Model) throw new Error('Table not found');
+  if (!admin || !hasPermission(admin.role, 'create', tableName)) throw new Error('Permission denied');
   const rec = await Model.create(data);
   return rec;
 };
 
 // Generic update
-const updateRecord = async (tableName, id, data) => {
+const updateRecord = async (tableName, id, data, admin = null) => {
   const Model = sequelize.models[tableName];
   if (!Model) throw new Error('Table not found');
+  if (!admin || !hasPermission(admin.role, 'update', tableName)) throw new Error('Permission denied');
   const rec = await Model.findByPk(id);
   if (!rec) throw new Error('Record not found');
   await rec.update(data);
@@ -135,13 +177,62 @@ const updateRecord = async (tableName, id, data) => {
 };
 
 // Generic delete
-const deleteRecord = async (tableName, id) => {
+const deleteRecord = async (tableName, id, admin = null) => {
   const Model = sequelize.models[tableName];
   if (!Model) throw new Error('Table not found');
+  if (!admin || !hasPermission(admin.role, 'delete', tableName)) throw new Error('Permission denied');
   const rec = await Model.findByPk(id);
   if (!rec) throw new Error('Record not found');
   await rec.destroy();
   return { success: true };
+};
+
+// Export table as CSV or JSON (no pagination)
+const exportTable = async (tableName, query = {}, admin = null) => {
+  const Model = sequelize.models[tableName];
+  if (!Model) throw new Error('Table not found');
+  if (!admin || !hasPermission(admin.role, 'export', tableName)) throw new Error('Permission denied');
+
+  const where = {};
+  if (query.search) {
+    const { Op } = require('sequelize');
+    const term = `%${query.search}%`;
+    where[Op.or] = [
+      { name: { [Op.iLike]: term } },
+      { email: { [Op.iLike]: term } },
+      { phoneNumber: { [Op.iLike]: term } }
+    ];
+  }
+  if (query.dateFrom || query.dateTo) {
+    const { Op } = require('sequelize');
+    where.createdAt = {};
+    if (query.dateFrom) where.createdAt[Op.gte] = new Date(query.dateFrom);
+    if (query.dateTo) where.createdAt[Op.lte] = new Date(query.dateTo);
+  }
+
+  const items = await Model.findAll({ where, order: [['createdAt','DESC']] });
+  const format = (query.format || 'csv').toLowerCase();
+
+  if (format === 'json') {
+    return { contentType: 'application/json', filename: `${tableName}-export.json`, payload: JSON.stringify(items, null, 2) };
+  }
+
+  // CSV export
+  const toCSV = (records) => {
+    if (!records || records.length === 0) return '';
+    const plain = records.map(r => (typeof r.toJSON === 'function' ? r.toJSON() : r));
+    const headers = Array.from(new Set(plain.flatMap(obj => Object.keys(obj))));
+    const escape = (val) => {
+      if (val === null || val === undefined) return '';
+      const s = String(val).replace(/"/g, '""');
+      return `"${s}"`;
+    };
+    const rows = [headers.join(',')].concat(plain.map(obj => headers.map(h => escape(obj[h])).join(',')));
+    return rows.join('\n');
+  };
+
+  const csv = toCSV(items);
+  return { contentType: 'text/csv', filename: `${tableName}-export.csv`, payload: csv };
 };
 
 module.exports = {
@@ -154,5 +245,7 @@ module.exports = {
   fetchTable,
   addRecord,
   updateRecord,
-  deleteRecord
+  deleteRecord,
+  exportTable,
+  hasPermission
 };
