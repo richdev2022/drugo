@@ -249,6 +249,69 @@ app.post('/api/admin/reset-password', async (req, res) => {
   }
 });
 
+// Admin endpoint to create/provide backup OTP for user registration
+app.post('/api/admin/backup-otp', adminAuthMiddleware, async (req, res) => {
+  try {
+    const { email, action } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    if (action === 'create') {
+      // Admin can create a new backup OTP for a user
+      const { generateOTP, getOTPExpiry } = require('./utils/otp');
+      const { OTP } = require('./models');
+
+      const backupOtp = generateOTP();
+      const expiresAt = getOTPExpiry();
+
+      await OTP.create({
+        email: email.toLowerCase(),
+        code: backupOtp,
+        purpose: 'registration',
+        isBackupOTP: true,
+        createdByAdmin: req.admin.id,
+        expiresAt: expiresAt
+      });
+
+      return res.json({
+        success: true,
+        message: `Backup OTP created for ${email}`,
+        otp: backupOtp,
+        expiresAt: expiresAt,
+        note: 'Share this OTP with the user via secure channel. Valid for 5 minutes.'
+      });
+    } else if (action === 'list') {
+      // Admin can view pending OTPs for an email
+      const { OTP } = require('./models');
+
+      const otps = await OTP.findAll({
+        where: {
+          email: email.toLowerCase(),
+          purpose: 'registration',
+          isUsed: false
+        },
+        attributes: ['code', 'createdAt', 'expiresAt', 'isBackupOTP', 'createdByAdmin'],
+        order: [['createdAt', 'DESC']],
+        limit: 5
+      });
+
+      return res.json({
+        success: true,
+        email: email,
+        pendingOTPs: otps,
+        total: otps.length
+      });
+    } else {
+      return res.status(400).json({ success: false, message: 'Invalid action. Use "create" or "list"' });
+    }
+  } catch (error) {
+    console.error('Admin backup OTP error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
 // Protected admin management routes (require adminAuthMiddleware)
 app.post('/api/admin/staff', adminAuthMiddleware, async (req, res) => {
   try {
@@ -1179,7 +1242,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
   }
 
   // Check if waiting for OTP verification during registration
-    if (session.data && session.data.waitingForOTPVerification && session.state === 'REGISTERING') {
+    if (session.data && session.data.waitingForOTPVerification) {
       const otpMatch = messageText.match(/^\d{4}$/);
       if (otpMatch) {
         console.log(`🔐 Processing OTP verification`);
@@ -1509,13 +1572,13 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
         const { sendOTPEmail } = require('./config/brevo');
         try {
           await sendOTPEmail(userData.email, otp, userData.name);
-          const otpMsg = formatResponseWithOptions(`📧 OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
+          const otpMsg = formatResponseWithOptions(`✅ OTP has been sent to ${userData.email}. Please reply with your 4-digit code to complete registration. The code is valid for 5 minutes.`, false);
           await sendWhatsAppMessage(phoneNumber, otpMsg);
         } catch (emailError) {
           emailSent = false;
           console.error('Error sending OTP email via Brevo:', emailError);
           // Even if email send fails, allow user to verify with backup OTP from admin
-          const fallbackMsg = formatResponseWithOptions(`⚠️ Failed to send OTP via email. However, you can still complete registration in two ways:\n\n1️⃣ **Enter the OTP** (if you received it from an admin or notification)\n2️⃣ **Try again later** if email service recovers\n\nPlease reply with your 4-digit OTP code to verify your account.`, false);
+          const fallbackMsg = formatResponseWithOptions(`⚠️ **Failed to send OTP via email.** The email service is temporarily unavailable.\n\n✅ **Don't worry! You can still complete registration:**\n\n1️⃣ **From Admin**: Contact our support team - they can provide you a backup OTP code\n2️⃣ **Enter your code**: Reply with the 4-digit OTP code (from email or provided by admin)\n3️⃣ **Or retry**: Try registering again later when email service is restored\n\nYour registration data is secure. The OTP code we generated is stored in our database and is valid for 5 minutes.\n\nNeed help? Type 'support' to contact our team.`, false);
           await sendWhatsAppMessage(phoneNumber, fallbackMsg);
         }
 
@@ -2075,25 +2138,34 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       return;
     }
 
-    // Find the OTP record
+    // Find the OTP record - check if it matches exactly
     const otpRecord = await OTP.findOne({
       where: {
         email: registrationData.email,
         code: otp,
-        purpose: 'registration',
-        isUsed: false
+        purpose: 'registration'
       }
     });
 
     if (!otpRecord) {
-      const msg = formatResponseWithOptions("❌ Invalid OTP. The code you entered doesn't match. Please try again or contact support for assistance.", false);
+      const msg = formatResponseWithOptions("❌ Invalid OTP. The code you entered doesn't match our records.\n\n💡 **Options:**\n1️⃣ Check your email - make sure you entered the correct 4-digit code\n2️⃣ Contact admin - they can provide you a backup OTP\n3️⃣ Type 'register' again - to start fresh and get a new OTP\n\nNeed help? Type 'support' to contact our team.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
+      return;
+    }
+
+    // Check if OTP is already used
+    if (otpRecord.isUsed) {
+      const msg = formatResponseWithOptions("❌ This OTP has already been used. Please type 'register' to start over and receive a new OTP.", false);
+      await sendWhatsAppMessage(phoneNumber, msg);
+      session.data.waitingForOTPVerification = false;
+      session.data.registrationData = null;
+      await session.save();
       return;
     }
 
     // Check if OTP is expired
     if (new Date() > otpRecord.expiresAt) {
-      const msg = formatResponseWithOptions("❌ OTP has expired. Type 'register' to start over and receive a new OTP.", false);
+      const msg = formatResponseWithOptions("❌ OTP has expired.\n\n💡 **What to do:**\n1️⃣ Type 'register' to start over and get a fresh OTP\n2️⃣ Contact admin if you need an immediate backup OTP\n\nNeed help? Type 'support' to reach our team.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
       session.data.waitingForOTPVerification = false;
       session.data.registrationData = null;

@@ -64,7 +64,7 @@ const sendOTPEmail = async (email, otp, recipientName = 'User') => {
         <body>
           <div class="container">
             <div class="header">
-              <img src="https://cdn.builder.io/api/v1/image/assets%2F01bff6d14aa548b2ab2583e4f3f687c7%2Ff35fc00e76f24785934b7375bdbb5029?format=webp&width=200" alt="Drugs.ng Logo" class="logo">
+              <img src="https://cdn.builder.io/api/v1/image/assets%2F59e93344ecf940faacc3f16a19f2960b%2F72bbbc03cabc4cdb838704d104c36c9e?format=webp&width=200" alt="Drugs.ng Logo" class="logo">
               <h1>Drugs.ng</h1>
             </div>
             <div class="content">
@@ -138,7 +138,7 @@ const sendPasswordResetEmail = async (email, otp, recipientName = 'User') => {
         <body>
           <div class="container">
             <div class="header">
-              <img src="https://cdn.builder.io/api/v1/image/assets%2F01bff6d14aa548b2ab2583e4f3f687c7%2Ff35fc00e76f24785934b7375bdbb5029?format=webp&width=200" alt="Drugs.ng Logo" class="logo">
+              <img src="https://cdn.builder.io/api/v1/image/assets%2F59e93344ecf940faacc3f16a19f2960b%2F72bbbc03cabc4cdb838704d104c36c9e?format=webp&width=200" alt="Drugs.ng Logo" class="logo">
               <h1>Drugs.ng</h1>
             </div>
             <div class="content">
