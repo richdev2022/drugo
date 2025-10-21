@@ -1169,6 +1169,38 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
     session.lastActivity = new Date();
     await session.save();
 
+    // Session idle-token handling: expire session after configured idle timeout (default 10 minutes)
+    // and update tokenLastUsed on activity. This keeps users logged in while they are active.
+    if (session.state === 'LOGGED_IN') {
+      try {
+        session.data = session.data || {};
+        const idleMinutes = parseInt(process.env.SESSION_IDLE_TIMEOUT_MINUTES || '10', 10);
+        const idleMs = idleMinutes * 60 * 1000;
+        const tokenLastUsedStr = session.data.tokenLastUsed;
+
+        if (tokenLastUsedStr) {
+          const tokenLastUsed = new Date(tokenLastUsedStr);
+          if (Date.now() - tokenLastUsed.getTime() > idleMs) {
+            // Session expired due to inactivity — log user out
+            session.state = 'NEW';
+            session.data = {};
+            await session.save();
+            await sendWhatsAppMessage(phoneNumber, '🔒 You have been automatically logged out due to inactivity. Please login again to continue.');
+            return;
+          }
+        }
+
+        // Ensure there is a session token and update last-used timestamp
+        if (!session.data.token) {
+          session.data.token = generateToken();
+        }
+        session.data.tokenLastUsed = new Date().toISOString();
+        await session.save();
+      } catch (err) {
+        console.error('Error handling session idle timeout:', err.message);
+      }
+    }
+
     // Check if in support chat
   if (session.state === 'SUPPORT_CHAT') {
     console.log(`💬 ${phoneNumber} is in support chat`);
@@ -1672,7 +1704,9 @@ const handleLogin = async (phoneNumber, session, parameters) => {
         // Update session
         session.state = 'LOGGED_IN';
         session.data.userId = result.userId;
-        session.data.token = result.token;
+        // Ensure a session token exists (use external token if provided, otherwise generate one)
+        session.data.token = result.token || generateToken();
+        session.data.tokenLastUsed = new Date().toISOString();
         await session.save();
 
         const successMsg = formatResponseWithOptions(`✅ Login successful! Welcome back to Drugs.ng. Type 'help' to see what you can do.`, true);
@@ -2225,7 +2259,7 @@ const handleResendOTP = async (phoneNumber, session) => {
       await session.save();
     } catch (emailError) {
       console.error('Error sending resend OTP email:', emailError);
-      const fallbackMsg = formatResponseWithOptions(`⚠️ **Email service temporarily unavailable.**\n\n✅ **You can still continue:**\n1️⃣ A new OTP code has been generated and saved\n2️⃣ Contact our support team to get your backup OTP code\n3️⃣ Reply with your 4-digit code when you have it\n\nNeed help? Type 'support' to reach our team.`, false);
+      const fallbackMsg = formatResponseWithOptions(`⚠️ **Email service temporarily unavailable.**\n\n✅ **You can still continue:**\n1️��� A new OTP code has been generated and saved\n2️⃣ Contact our support team to get your backup OTP code\n3️⃣ Reply with your 4-digit code when you have it\n\nNeed help? Type 'support' to reach our team.`, false);
       await sendWhatsAppMessage(phoneNumber, fallbackMsg);
 
       session.data.waitingForOTPVerification = true;
@@ -2352,7 +2386,9 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       // ONLY NOW update session with user data (after successful registration)
       session.state = 'LOGGED_IN';
       session.data.userId = result.userId;
-      session.data.token = result.token;
+      // Ensure a session token exists (use external token if provided, otherwise generate one)
+      session.data.token = result.token || generateToken();
+      session.data.tokenLastUsed = new Date().toISOString();
       session.data.waitingForOTPVerification = false;
       session.data.registrationData = null;
       session.data.emailSendFailed = false;
