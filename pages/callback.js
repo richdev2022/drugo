@@ -6,7 +6,7 @@ const CallbackPage = () => {
   const router = useRouter();
   const { status } = router.query; // Expecting 'success' or 'failed' from webhook
 
-  const logoUrl = 'https://cdn.builder.io/api/v1/image/assets%2F89edfb014b264aa1be87a238c6cee9b8%2Feca24978b49246d5ade23b106d240dc8?format=webp&width=800';
+  const logoUrl = 'https://cdn.builder.io/api/v1/image/assets%2F89edfb014b264aa1be87a238c6cee9b8%2F26c24c9523574d838f55b9611e7fecf7?format=webp&width=800';
   const primaryColor = '#007bff'; // Assuming a blue color from the logo
 
   useEffect(() => {
