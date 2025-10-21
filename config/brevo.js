@@ -117,30 +117,47 @@ const sendPasswordResetEmail = async (email, otp, recipientName = 'User') => {
         <head>
           <meta charset="UTF-8">
           <style>
-            body { font-family: Arial, sans-serif; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; }
-            .header { background-color: #2c3e50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
-            .content { background-color: white; padding: 30px; border-radius: 0 0 5px 5px; }
-            .otp-box { background-color: #ecf0f1; padding: 20px; text-align: center; border-radius: 5px; margin: 20px 0; }
-            .otp-code { font-size: 32px; font-weight: bold; color: #e74c3c; letter-spacing: 5px; }
-            .footer { text-align: center; font-size: 12px; color: #7f8c8d; margin-top: 20px; }
+            body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 0 auto; padding: 0; background-color: #f9f9f9; }
+            .header { background: linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%); color: white; padding: 30px 20px; text-align: center; border-radius: 5px 5px 0 0; }
+            .logo { max-width: 200px; height: auto; margin: 0 auto 15px; display: block; }
+            .header h1 { margin: 0; font-size: 28px; font-weight: 600; }
+            .content { background-color: white; padding: 40px 30px; border-radius: 0 0 5px 5px; }
+            .greeting { font-size: 18px; color: #2c3e50; margin-bottom: 20px; font-weight: 500; }
+            .description { font-size: 14px; color: #555; line-height: 1.6; margin-bottom: 25px; }
+            .otp-box { background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%); padding: 25px; text-align: center; border-radius: 8px; margin: 30px 0; border-left: 4px solid #d32f2f; }
+            .otp-label { font-size: 13px; color: #b71c1c; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+            .otp-code { font-size: 42px; font-weight: bold; color: #d32f2f; letter-spacing: 8px; font-family: monospace; }
+            .validity { font-size: 13px; color: #666; margin-top: 15px; }
+            .warning { background-color: #fff3e0; border-left: 4px solid #ff9800; padding: 15px; margin: 20px 0; border-radius: 4px; font-size: 13px; color: #e65100; }
+            .note { background-color: #f3e5f5; border-left: 4px solid #9c27b0; padding: 15px; margin: 20px 0; border-radius: 4px; font-size: 13px; color: #6a1b9a; }
+            .footer { text-align: center; font-size: 12px; color: #999; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
+            .footer p { margin: 5px 0; }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="header">
-              <h1>🏥 Drugs.ng</h1>
+              <img src="https://cdn.builder.io/api/v1/image/assets%2F01bff6d14aa548b2ab2583e4f3f687c7%2Ff35fc00e76f24785934b7375bdbb5029?format=webp&width=200" alt="Drugs.ng Logo" class="logo">
+              <h1>Drugs.ng</h1>
             </div>
             <div class="content">
-              <p>Hello ${recipientName},</p>
-              <p>We received a request to reset your password. Use the code below to verify your identity:</p>
+              <p class="greeting">Hello ${recipientName},</p>
+              <p class="description">We received a request to reset your password. Use the verification code below to confirm your identity:</p>
               <div class="otp-box">
+                <div class="otp-label">Password Reset Code</div>
                 <div class="otp-code">${otp}</div>
+                <div class="validity">Valid for <strong>5 minutes</strong></div>
               </div>
-              <p>This verification code is valid for <strong>5 minutes</strong>.</p>
-              <p>If you didn't request this password reset, please ignore this email and your account will remain secure.</p>
+              <div class="warning">
+                <strong>⚠️ Security Alert:</strong> If you didn't request this password reset, your account might be at risk. Please change your password immediately or contact our support team.
+              </div>
+              <div class="note">
+                <strong>💡 Tips:</strong> Never share this code with anyone. This code is only valid for 5 minutes. After expiration, you'll need to request a new one.
+              </div>
               <div class="footer">
-                <p>&copy; ${new Date().getFullYear()} Drugs.ng. All rights reserved.</p>
+                <p>© ${new Date().getFullYear()} Drugs.ng. All rights reserved.</p>
+                <p>For support, contact us via WhatsApp or email at support@drugs.ng</p>
               </div>
             </div>
           </div>
