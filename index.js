@@ -2055,31 +2055,31 @@ const handleDoctorSearch = async (phoneNumber, session, parameters) => {
       return;
     }
 
+    const pageSize = 5;
     const location = parameters.location || 'Lagos';
-    const doctors = await searchDoctors(parameters.specialty, location);
+    const pageData = await searchDoctorsPaginated(parameters.specialty, location, 1, pageSize);
 
-    if (doctors.length === 0) {
+    if (!pageData.items || pageData.items.length === 0) {
       const msg = formatResponseWithOptions(`Sorry, we couldn't find any ${parameters.specialty} in ${location}. Please try a different specialty or location.`, isLoggedIn);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
 
-    let message = `Here are some ${parameters.specialty} doctors in ${location}:\n\n`;
-
-    doctors.slice(0, 5).forEach((doctor, index) => {
-      message += `${index + 1}. Dr. ${doctor.name}\n`;
-      message += `   Specialty: ${doctor.specialty}\n`;
-      message += `   Location: ${doctor.location}\n`;
-      message += `   Rating: ${doctor.rating}/5\n\n`;
-    });
-
-    message += `To book an appointment, reply with "book [doctor number] [date] [time]"\nExample: "book 1 2023-06-15 14:00" to book the first doctor on June 15th at 2 PM.`;
-
-    // Save search results in session for reference
-    session.data.doctorSearchResults = doctors.slice(0, 5);
+    // Save pagination and last search
+    session.data.doctorPagination = { currentPage: pageData.page, totalPages: pageData.totalPages, pageSize: pageData.pageSize };
+    session.data.doctorPageItems = pageData.items;
+    session.data.lastDoctorSearch = { specialty: parameters.specialty, location };
     await session.save();
 
-    const msgWithOptions = formatResponseWithOptions(message, isLoggedIn);
+    const msg = buildPaginatedListMessage(pageData.items, pageData.page, pageData.totalPages, `Here are some ${parameters.specialty} doctors in ${location}:`, (doctor) => {
+      let s = `Dr. ${doctor.name}`;
+      if (doctor.specialty) s += `\n   Specialty: ${doctor.specialty}`;
+      if (doctor.location) s += `\n   Location: ${doctor.location}`;
+      if (doctor.rating) s += `\n   Rating: ${doctor.rating}/5`;
+      return s;
+    });
+
+    const msgWithOptions = formatResponseWithOptions(msg, isLoggedIn);
     await sendWhatsAppMessage(phoneNumber, msgWithOptions);
   } catch (error) {
     console.error('Error searching doctors:', error);
