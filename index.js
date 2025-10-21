@@ -1611,9 +1611,13 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
         }
 
         // Store that we're waiting for OTP verification (even if email send failed)
-        session.data.waitingForOTPVerification = true;
-        session.data.registrationAttempts = (session.data.registrationAttempts || 0) + 1;
-        session.data.emailSendFailed = !emailSent;
+        session.data = {
+          ...session.data,
+          waitingForOTPVerification: true,
+          registrationAttempts: (session.data.registrationAttempts || 0) + 1,
+          emailSendFailed: !emailSent
+        };
+        session.changed('data', true);
         await session.save();
 
       } catch (error) {
