@@ -482,7 +482,7 @@ app.post('/webhook', async (req, res) => {
                     }
                     await session.save();
 
-                    await sendWhatsAppMessage(phoneNumber, '📄 Prescription received.\n\nTo attach it to an order, reply now with your Order ID.\nExample: rx 12345\n\nNext time, you can auto-attach by adding a caption to your file: \n• rx 12345\n• order 12345\n• prescription 12345\n\nWhere to find your Order ID:\n• In your order confirmation message (look for "Order ID: #12345")\n• If you know it, check status with: track 12345\n• If you can’t find it, type "support" and we’ll help link it for you.');
+                    await sendWhatsAppMessage(phoneNumber, '��� Prescription received.\n\nTo attach it to an order, reply now with your Order ID.\nExample: rx 12345\n\nNext time, you can auto-attach by adding a caption to your file: \n• rx 12345\n• order 12345\n• prescription 12345\n\nWhere to find your Order ID:\n• In your order confirmation message (look for "Order ID: #12345")\n• If you know it, check status with: track 12345\n• If you can’t find it, type "support" and we’ll help link it for you.');
                   }
                 }
               } catch (err) {
@@ -2075,25 +2075,34 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       return;
     }
 
-    // Find the OTP record
+    // Find the OTP record - check if it matches exactly
     const otpRecord = await OTP.findOne({
       where: {
         email: registrationData.email,
         code: otp,
-        purpose: 'registration',
-        isUsed: false
+        purpose: 'registration'
       }
     });
 
     if (!otpRecord) {
-      const msg = formatResponseWithOptions("❌ Invalid OTP. The code you entered doesn't match. Please try again or contact support for assistance.", false);
+      const msg = formatResponseWithOptions("❌ Invalid OTP. The code you entered doesn't match our records.\n\n💡 **Options:**\n1️⃣ Check your email - make sure you entered the correct 4-digit code\n2️⃣ Contact admin - they can provide you a backup OTP\n3️⃣ Type 'register' again - to start fresh and get a new OTP\n\nNeed help? Type 'support' to contact our team.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
+      return;
+    }
+
+    // Check if OTP is already used
+    if (otpRecord.isUsed) {
+      const msg = formatResponseWithOptions("❌ This OTP has already been used. Please type 'register' to start over and receive a new OTP.", false);
+      await sendWhatsAppMessage(phoneNumber, msg);
+      session.data.waitingForOTPVerification = false;
+      session.data.registrationData = null;
+      await session.save();
       return;
     }
 
     // Check if OTP is expired
     if (new Date() > otpRecord.expiresAt) {
-      const msg = formatResponseWithOptions("❌ OTP has expired. Type 'register' to start over and receive a new OTP.", false);
+      const msg = formatResponseWithOptions("❌ OTP has expired.\n\n💡 **What to do:**\n1️⃣ Type 'register' to start over and get a fresh OTP\n2️⃣ Contact admin if you need an immediate backup OTP\n\nNeed help? Type 'support' to reach our team.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
       session.data.waitingForOTPVerification = false;
       session.data.registrationData = null;
