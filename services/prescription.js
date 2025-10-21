@@ -289,6 +289,45 @@ const getPendingPrescriptions = async (limit = 20) => {
   }
 };
 
+// Paginated pending prescriptions
+const getPendingPrescriptionsPaginated = async (page = 1, pageSize = 10) => {
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safeSize = Math.min(50, Math.max(1, parseInt(pageSize, 10) || 10));
+  const offset = (safePage - 1) * safeSize;
+
+  try {
+    const { rows, count } = await Prescription.findAndCountAll({
+      where: { verificationStatus: 'Pending' },
+      include: [
+        {
+          model: Order,
+          attributes: ['id', 'userId', 'totalAmount', 'createdAt']
+        }
+      ],
+      order: [['createdAt', 'ASC']],
+      limit: safeSize,
+      offset
+    });
+
+    const items = rows.map(p => ({
+      id: p.id,
+      orderId: p.orderId,
+      fileUrl: p.fileUrl,
+      verificationStatus: p.verificationStatus,
+      createdAt: p.createdAt,
+      extractedText: p.extractedText
+    }));
+
+    const total = count;
+    const totalPages = Math.max(1, Math.ceil(total / safeSize));
+
+    return { items, total, totalPages, page: safePage, pageSize: safeSize };
+  } catch (error) {
+    console.error('Error getting pending prescriptions paginated:', error);
+    throw error;
+  }
+};
+
 // Terminate OCR worker when shutting down
 const terminateOCRWorker = async () => {
   try {
@@ -309,6 +348,7 @@ module.exports = {
   getPrescription,
   verifyPrescription,
   getPendingPrescriptions,
+  getPendingPrescriptionsPaginated,
   terminateOCRWorker,
   initializeOCRWorker
 };

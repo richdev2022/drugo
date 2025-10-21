@@ -96,6 +96,8 @@ const HELP_MESSAGE = `🏥 *Drugs.ng WhatsApp Bot - Available Services:*
 
 Simply reply with a number (1-8) or describe what you need!`;
 
+const { parseOrderIdFromText, isValidOrderId } = require('../utils/orderParser');
+
 const processMessage = async (message, phoneNumber, session) => {
   try {
     if (!message || typeof message !== 'string') {
@@ -232,7 +234,7 @@ const createResponse = (intent, parameters = {}, fulfillmentText = null, source 
     search_products: "What medicine or product are you looking for?",
     add_to_cart: 'Please specify the product number and quantity.\n\nExample: add 1 2 (adds 2 units of product 1)',
     place_order: 'I can help you place an order. Please provide your delivery address and payment method.',
-    track_order: 'Please provide your order ID to track it.\n\nExample: track 12345',
+    track_order: 'Please provide your order ID to track it.\n\nExample: track 12345 (or send part of your payment reference like drugsng-12345-... or caption: rx 12345)',
     search_doctors: 'What type of doctor are you looking for? (e.g., cardiologist, pediatrician)',
     book_appointment: 'I can help you book an appointment. Please provide the doctor and your preferred date and time.',
     payment: 'I can help you make a payment. Please provide your order ID and preferred payment method.',
@@ -379,10 +381,10 @@ const handlePlaceOrderIntent = (message) => {
 
 const handleTrackOrderIntent = (message) => {
   const parameters = {};
-  const numbers = message.match(/\d+/g);
-
-  if (numbers && numbers.length > 0) {
-    parameters.orderId = numbers[0];
+  // Try robust parsing for order id (supports: "rx 123", txRef like drugsng-12345-..., or plain numeric id)
+  const parsed = parseOrderIdFromText(message);
+  if (parsed) {
+    parameters.orderId = parsed;
   }
 
   return createResponse('track_order', parameters);
@@ -441,9 +443,9 @@ const handlePaymentIntent = (message) => {
   const parameters = {};
   const lowerMessage = message.toLowerCase();
 
-  const numbers = message.match(/\d+/g);
-  if (numbers && numbers.length > 0) {
-    parameters.orderId = numbers[0];
+  const parsed = parseOrderIdFromText(message);
+  if (parsed) {
+    parameters.orderId = parsed;
   }
 
   if (/flutterwave/i.test(lowerMessage)) {
@@ -518,9 +520,9 @@ const extractIntentFromMessage = (lowerMessage) => {
   }
 
   if (foundKeywords.tracking.length > 0) {
-    // Try to extract order ID
-    const numMatch = lowerMessage.match(/\d+/);
-    return createResponse('track_order', { orderId: numMatch ? numMatch[0] : undefined });
+    // Try to extract order ID using robust parser
+    const parsed = parseOrderIdFromText(lowerMessage);
+    return createResponse('track_order', { orderId: parsed || undefined });
   }
 
   // Fallback: use pattern matching for additional context

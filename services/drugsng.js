@@ -508,6 +508,40 @@ const bookAppointment = async (userId, doctorId, dateTime) => {
   }
 };
 
+// Paginated doctors search (API first, DB fallback)
+const searchDoctorsPaginated = async (specialty, location, page = 1, pageSize = 5) => {
+  const safePage = Math.max(1, parseInt(page, 10) || 1);
+  const safeSize = Math.min(20, Math.max(1, parseInt(pageSize, 10) || 5));
+
+  try {
+    const response = await drugsngAPI.get('/doctors', { params: { specialty, location, page: safePage, limit: safeSize } });
+    const items = Array.isArray(response.data?.doctors) ? response.data.doctors : (Array.isArray(response.data) ? response.data : []);
+    const total = response.data?.total || items.length;
+    const totalPages = response.data?.totalPages || Math.max(1, Math.ceil(total / safeSize));
+    return { items, total, totalPages, page: safePage, pageSize: safeSize, source: 'api' };
+  } catch (apiError) {
+    console.warn('Drugs.ng API doctors list failed, using local DB:', apiError.message);
+  }
+
+  // Fallback to PostgreSQL
+  const { Op } = require('sequelize');
+  const offset = (safePage - 1) * safeSize;
+  const where = {
+    isActive: true,
+    available: true,
+    [Op.and]: []
+  };
+  if (specialty) where[Op.and].push({ specialty: { [Op.iLike]: `%${specialty}%` } });
+  if (location) where[Op.and].push({ location: { [Op.iLike]: `%${location}%` } });
+
+  const { rows, count } = await Doctor.findAndCountAll({ where, limit: safeSize, offset, order: [['rating','DESC']] });
+
+  const items = rows.map(doctor => ({ id: doctor.id, name: doctor.name, specialty: doctor.specialty, location: doctor.location, available: doctor.available, rating: doctor.rating, imageUrl: doctor.imageUrl }));
+  const total = count;
+  const totalPages = Math.max(1, Math.ceil(total / safeSize));
+  return { items, total, totalPages, page: safePage, pageSize: safeSize, source: 'db' };
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -517,5 +551,6 @@ module.exports = {
   placeOrder,
   trackOrder,
   searchDoctors,
+  searchDoctorsPaginated,
   bookAppointment
 };

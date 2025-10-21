@@ -9,6 +9,7 @@ const { sequelize, initializeDatabase } = require('./models');
 const { sendWhatsAppMessage, markMessageAsRead, getMediaInfo, downloadMedia, isPermissionError } = require('./config/whatsapp');
 const adminService = require('./services/admin');
 const { processMessage, formatResponseWithOptions } = require('./services/nlp');
+const { parseNavigationCommand, buildPaginatedListMessage } = require('./utils/pagination');
 const {
   registerUser,
   loginUser,
@@ -25,6 +26,7 @@ const { encryptData, decryptData, generateToken } = require('./services/security
 const { handleApiError, handleDbError, handleValidationError, createErrorResponse, createSuccessResponse } = require('./utils/errorHandler');
 const { checkRateLimit } = require('./utils/rateLimiter');
 const { isValidRegistrationData, isValidLoginData, sanitizeInput, normalizePhoneNumber } = require('./utils/validation');
+const { parseOrderIdFromText, isValidOrderId } = require('./utils/orderParser');
 const {
   notifySupportTeams,
   notifySupportTeam,
@@ -1169,6 +1171,38 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
     session.lastActivity = new Date();
     await session.save();
 
+    // Session idle-token handling: expire session after configured idle timeout (default 10 minutes)
+    // and update tokenLastUsed on activity. This keeps users logged in while they are active.
+    if (session.state === 'LOGGED_IN') {
+      try {
+        session.data = session.data || {};
+        const idleMinutes = parseInt(process.env.SESSION_IDLE_TIMEOUT_MINUTES || '10', 10);
+        const idleMs = idleMinutes * 60 * 1000;
+        const tokenLastUsedStr = session.data.tokenLastUsed;
+
+        if (tokenLastUsedStr) {
+          const tokenLastUsed = new Date(tokenLastUsedStr);
+          if (Date.now() - tokenLastUsed.getTime() > idleMs) {
+            // Session expired due to inactivity — log user out
+            session.state = 'NEW';
+            session.data = {};
+            await session.save();
+            await sendWhatsAppMessage(phoneNumber, '🔒 You have been automatically logged out due to inactivity. Please login again to continue.');
+            return;
+          }
+        }
+
+        // Ensure there is a session token and update last-used timestamp
+        if (!session.data.token) {
+          session.data.token = generateToken();
+        }
+        session.data.tokenLastUsed = new Date().toISOString();
+        await session.save();
+      } catch (err) {
+        console.error('Error handling session idle timeout:', err.message);
+      }
+    }
+
     // Check if in support chat
   if (session.state === 'SUPPORT_CHAT') {
     console.log(`💬 ${phoneNumber} is in support chat`);
@@ -1215,16 +1249,8 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
 
   // Pagination navigation for products list
   if (session.data && session.data.productPagination) {
-    const nav = messageText.trim().toLowerCase();
     const { currentPage, totalPages, pageSize } = session.data.productPagination;
-    let targetPage = null;
-    if (nav === 'next' && currentPage < totalPages) targetPage = currentPage + 1;
-    if (nav === 'previous' && currentPage > 1) targetPage = currentPage - 1;
-    const numMatch = messageText.trim().match(/^\d+$/);
-    if (!targetPage && numMatch) {
-      const n = parseInt(numMatch[0], 10);
-      if (n >= 1 && n <= totalPages) targetPage = n;
-    }
+    const targetPage = parseNavigationCommand(messageText, currentPage, totalPages);
     if (targetPage) {
       const pageData = await listAllProductsPaginated(targetPage, pageSize);
       session.data.productPagination = {
@@ -1234,8 +1260,41 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
       };
       session.data.productPageItems = pageData.items;
       await session.save();
-      const isLoggedIn = session.state === 'LOGGED_IN';
-      const msg = buildProductListMessage(pageData.items, pageData.page, pageData.totalPages);
+      const isLoggedIn = isAuthenticatedSession(session);
+      const msg = buildPaginatedListMessage(pageData.items, pageData.page, pageData.totalPages, '📦 Medicines', (product) => {
+        let s = `${product.name}`;
+        if (product.price) s += `\n   Price: ₦${product.price}`;
+        if (product.category) s += `\n   Category: ${product.category}`;
+        if (product.imageUrl) s += `\n   Image: ${product.imageUrl}`;
+        return s;
+      });
+      await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
+      return;
+    }
+  }
+
+  // Pagination navigation for doctors list
+  if (session.data && session.data.doctorPagination) {
+    const { currentPage, totalPages, pageSize } = session.data.doctorPagination;
+    const targetPage = parseNavigationCommand(messageText, currentPage, totalPages);
+    if (targetPage) {
+      const lastSearch = session.data.lastDoctorSearch || {};
+      const pageData = await searchDoctorsPaginated(lastSearch.specialty || '', lastSearch.location || '', targetPage, pageSize);
+      session.data.doctorPagination = {
+        currentPage: pageData.page,
+        totalPages: pageData.totalPages,
+        pageSize: pageData.pageSize
+      };
+      session.data.doctorPageItems = pageData.items;
+      await session.save();
+      const isLoggedIn = isAuthenticatedSession(session);
+      const msg = buildPaginatedListMessage(pageData.items, pageData.page, pageData.totalPages, '👨‍⚕️ Doctors', (doctor) => {
+        let s = `Dr. ${doctor.name}`;
+        if (doctor.specialty) s += `\n   Specialty: ${doctor.specialty}`;
+        if (doctor.location) s += `\n   Location: ${doctor.location}`;
+        if (doctor.rating) s += `\n   Rating: ${doctor.rating}/5`;
+        return s;
+      });
       await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
       return;
     }
@@ -1265,7 +1324,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
 
   // Process with NLP
   console.log(`🤖 Processing with NLP...`);
-  const isLoggedIn = session.state === 'LOGGED_IN';
+  const isLoggedIn = isAuthenticatedSession(session);
   const nlpResult = await processMessage(messageText, phoneNumber, session);
   const { intent, parameters, fulfillmentText } = nlpResult;
   console.log(`✨ NLP Result: intent="${intent}", source="${nlpResult.source}", confidence=${nlpResult.confidence}`);
@@ -1492,6 +1551,15 @@ const handleSupportCommand = async (supportTeam, commandText) => {
 };
 
 // Send authentication required message
+// Helper to check if a session is authenticated (logged in, has userId)
+const isAuthenticatedSession = (session) => {
+  try {
+    return !!(session && session.state === 'LOGGED_IN' && session.data && session.data.userId);
+  } catch (e) {
+    return false;
+  }
+};
+
 const sendAuthRequiredMessage = async (phoneNumber) => {
   const authMessage = `🔐 *Authentication Required*\n\nYou need to be logged in to access this feature.\n\nPlease login with your email and password:\nExample: login john@example.com mypassword\n\nOr register if you're new:\nExample: register John Doe john@example.com mypassword\n\n📋 Type "help" to see all options.`;
   await sendWhatsAppMessage(phoneNumber, authMessage);
@@ -1639,7 +1707,7 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
       await sendWhatsAppMessage(phoneNumber, msgWithOptions);
     }
   } else {
-    const msg = formatResponseWithOptions("You're already registered. Type 'help' to see available services.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("You're already registered. Type 'help' to see available services.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -1672,7 +1740,9 @@ const handleLogin = async (phoneNumber, session, parameters) => {
         // Update session
         session.state = 'LOGGED_IN';
         session.data.userId = result.userId;
-        session.data.token = result.token;
+        // Ensure a session token exists (use external token if provided, otherwise generate one)
+        session.data.token = result.token || generateToken();
+        session.data.tokenLastUsed = new Date().toISOString();
         await session.save();
 
         const successMsg = formatResponseWithOptions(`✅ Login successful! Welcome back to Drugs.ng. Type 'help' to see what you can do.`, true);
@@ -1702,7 +1772,7 @@ const handleLogin = async (phoneNumber, session, parameters) => {
 // Handle product search
 const handleProductSearch = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     // If no specific query, list all medicines with pagination first
     if (!parameters.product) {
@@ -1749,7 +1819,7 @@ const handleProductSearch = async (phoneNumber, session, parameters) => {
     await sendWhatsAppMessage(phoneNumber, msgWithOptions);
   } catch (error) {
     console.error('Error searching products:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while searching for products. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while searching for products. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -1757,7 +1827,7 @@ const handleProductSearch = async (phoneNumber, session, parameters) => {
 // Handle add to cart
 const handleAddToCart = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!session.data.userId) {
       const msg = formatResponseWithOptions("Please login first to add items to your cart. Type 'login' to proceed.", isLoggedIn);
@@ -1787,7 +1857,7 @@ const handleAddToCart = async (phoneNumber, session, parameters) => {
     await sendWhatsAppMessage(phoneNumber, successMsg);
   } catch (error) {
     console.error('Error adding to cart:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while adding to your cart. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while adding to your cart. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -1795,7 +1865,7 @@ const handleAddToCart = async (phoneNumber, session, parameters) => {
 // Handle place order
 const handlePlaceOrder = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!session.data.userId) {
       const msg = formatResponseWithOptions("Please login first to place an order. Type 'login' to proceed.", isLoggedIn);
@@ -1912,7 +1982,7 @@ const buildProductListMessage = (items, page, totalPages) => {
 // Handle track order
 const handleTrackOrder = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!parameters.orderId) {
       const msg = formatResponseWithOptions("📍 To track your order, provide the order ID.\n\nExample: 'track 12345'", isLoggedIn);
@@ -1920,7 +1990,17 @@ const handleTrackOrder = async (phoneNumber, session, parameters) => {
       return;
     }
 
-    const orderId = sanitizeInput(parameters.orderId);
+    // Parse and validate order id
+    const rawInput = parameters.orderId || '';
+    const parsed = parseOrderIdFromText(rawInput) || rawInput;
+    const orderId = sanitizeInput(parsed);
+
+    if (!isValidOrderId(orderId)) {
+      const msg = formatResponseWithOptions("❌ The order ID you provided doesn't look valid. Please provide a numeric Order ID (e.g., 12345) or a reference like 'drugsng-12345-...'.\n\nExample: track 12345", isLoggedIn);
+      await sendWhatsAppMessage(phoneNumber, msg);
+      return;
+    }
+
     const orderDetails = await trackOrder(orderId);
 
     if (!orderDetails) {
@@ -1959,7 +2039,7 @@ const handleTrackOrder = async (phoneNumber, session, parameters) => {
   } catch (error) {
     console.error('Error tracking order:', error);
     const errorMessage = handleApiError(error, 'track_order').message;
-    const msg = formatResponseWithOptions(`❌ ${errorMessage}`, session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions(`❌ ${errorMessage}`, isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -1967,7 +2047,7 @@ const handleTrackOrder = async (phoneNumber, session, parameters) => {
 // Handle doctor search
 const handleDoctorSearch = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!parameters.specialty) {
       const msg = formatResponseWithOptions("What type of doctor are you looking for? Please provide a specialty (e.g., Cardiologist, Pediatrician).", isLoggedIn);
@@ -1975,35 +2055,35 @@ const handleDoctorSearch = async (phoneNumber, session, parameters) => {
       return;
     }
 
+    const pageSize = 5;
     const location = parameters.location || 'Lagos';
-    const doctors = await searchDoctors(parameters.specialty, location);
+    const pageData = await searchDoctorsPaginated(parameters.specialty, location, 1, pageSize);
 
-    if (doctors.length === 0) {
+    if (!pageData.items || pageData.items.length === 0) {
       const msg = formatResponseWithOptions(`Sorry, we couldn't find any ${parameters.specialty} in ${location}. Please try a different specialty or location.`, isLoggedIn);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
 
-    let message = `Here are some ${parameters.specialty} doctors in ${location}:\n\n`;
-
-    doctors.slice(0, 5).forEach((doctor, index) => {
-      message += `${index + 1}. Dr. ${doctor.name}\n`;
-      message += `   Specialty: ${doctor.specialty}\n`;
-      message += `   Location: ${doctor.location}\n`;
-      message += `   Rating: ${doctor.rating}/5\n\n`;
-    });
-
-    message += `To book an appointment, reply with "book [doctor number] [date] [time]"\nExample: "book 1 2023-06-15 14:00" to book the first doctor on June 15th at 2 PM.`;
-
-    // Save search results in session for reference
-    session.data.doctorSearchResults = doctors.slice(0, 5);
+    // Save pagination and last search
+    session.data.doctorPagination = { currentPage: pageData.page, totalPages: pageData.totalPages, pageSize: pageData.pageSize };
+    session.data.doctorPageItems = pageData.items;
+    session.data.lastDoctorSearch = { specialty: parameters.specialty, location };
     await session.save();
 
-    const msgWithOptions = formatResponseWithOptions(message, isLoggedIn);
+    const msg = buildPaginatedListMessage(pageData.items, pageData.page, pageData.totalPages, `Here are some ${parameters.specialty} doctors in ${location}:`, (doctor) => {
+      let s = `Dr. ${doctor.name}`;
+      if (doctor.specialty) s += `\n   Specialty: ${doctor.specialty}`;
+      if (doctor.location) s += `\n   Location: ${doctor.location}`;
+      if (doctor.rating) s += `\n   Rating: ${doctor.rating}/5`;
+      return s;
+    });
+
+    const msgWithOptions = formatResponseWithOptions(msg, isLoggedIn);
     await sendWhatsAppMessage(phoneNumber, msgWithOptions);
   } catch (error) {
     console.error('Error searching doctors:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while searching for doctors. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while searching for doctors. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2011,7 +2091,7 @@ const handleDoctorSearch = async (phoneNumber, session, parameters) => {
 // Handle book appointment
 const handleBookAppointment = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!session.data.userId) {
       const msg = formatResponseWithOptions("Please login first to book an appointment. Type 'login' to proceed.", isLoggedIn);
@@ -2047,7 +2127,7 @@ const handleBookAppointment = async (phoneNumber, session, parameters) => {
     await sendWhatsAppMessage(phoneNumber, successMsg);
   } catch (error) {
     console.error('Error booking appointment:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while booking your appointment. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while booking your appointment. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2055,7 +2135,7 @@ const handleBookAppointment = async (phoneNumber, session, parameters) => {
 // Handle payment
 const handlePayment = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!session.data.userId) {
       const msg = formatResponseWithOptions("Please login first to make a payment. Type 'login' to proceed.", isLoggedIn);
@@ -2104,7 +2184,7 @@ const handlePayment = async (phoneNumber, session, parameters) => {
     }
   } catch (error) {
     console.error('Error processing payment:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while processing your payment. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while processing your payment. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2130,7 +2210,7 @@ Simply reply with a number (1-7) or describe what you need!`;
 // Handle support request
 const handleSupportRequest = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
     const supportRole = parameters.supportType || 'general';
     await startSupportChat(phoneNumber, supportRole);
 
@@ -2144,7 +2224,7 @@ const handleSupportRequest = async (phoneNumber, session, parameters) => {
       session.supportTeamId = null;
       await session.save();
     } catch (_) {}
-    const msg = formatResponseWithOptions("Support is currently unavailable. You are back with the bot. Type 'help' for menu.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Support is currently unavailable. You are back with the bot. Type 'help' for menu.", isAuthenticatedSession(session));
     try { await sendWhatsAppMessage(phoneNumber, msg); } catch (_) {}
   }
 };
@@ -2225,7 +2305,7 @@ const handleResendOTP = async (phoneNumber, session) => {
       await session.save();
     } catch (emailError) {
       console.error('Error sending resend OTP email:', emailError);
-      const fallbackMsg = formatResponseWithOptions(`⚠️ **Email service temporarily unavailable.**\n\n✅ **You can still continue:**\n1️⃣ A new OTP code has been generated and saved\n2️⃣ Contact our support team to get your backup OTP code\n3️⃣ Reply with your 4-digit code when you have it\n\nNeed help? Type 'support' to reach our team.`, false);
+      const fallbackMsg = formatResponseWithOptions(`⚠️ **Email service temporarily unavailable.**\n\n✅ **You can still continue:**\n1️��� A new OTP code has been generated and saved\n2️⃣ Contact our support team to get your backup OTP code\n3️⃣ Reply with your 4-digit code when you have it\n\nNeed help? Type 'support' to reach our team.`, false);
       await sendWhatsAppMessage(phoneNumber, fallbackMsg);
 
       session.data.waitingForOTPVerification = true;
@@ -2352,7 +2432,9 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
       // ONLY NOW update session with user data (after successful registration)
       session.state = 'LOGGED_IN';
       session.data.userId = result.userId;
-      session.data.token = result.token;
+      // Ensure a session token exists (use external token if provided, otherwise generate one)
+      session.data.token = result.token || generateToken();
+      session.data.tokenLastUsed = new Date().toISOString();
       session.data.waitingForOTPVerification = false;
       session.data.registrationData = null;
       session.data.emailSendFailed = false;
@@ -2391,55 +2473,46 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
 const handleDiagnosticTestSearch = async (phoneNumber, session, parameters) => {
   try {
     const { DiagnosticTest } = require('./models');
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
-    let tests;
+    const page = parseInt(parameters.page || '1', 10) || 1;
+    const pageSize = 5;
+    const where = { isActive: true };
+
     if (parameters.testType) {
-      // Search for specific test type
-      tests = await DiagnosticTest.findAll({
-        where: {
-          [sequelize.Op.or]: [
-            { name: { [sequelize.Op.iLike]: `%${parameters.testType}%` } },
-            { category: { [sequelize.Op.iLike]: `%${parameters.testType}%` } }
-          ],
-          isActive: true
-        },
-        limit: 10
-      });
-    } else {
-      // Get all available tests
-      tests = await DiagnosticTest.findAll({
-        where: { isActive: true },
-        limit: 10
-      });
+      where[sequelize.Op.or] = [
+        { name: { [sequelize.Op.iLike]: `%${parameters.testType}%` } },
+        { category: { [sequelize.Op.iLike]: `%${parameters.testType}%` } }
+      ];
     }
 
-    if (tests.length === 0) {
+    const offset = (page - 1) * pageSize;
+    const { rows, count } = await DiagnosticTest.findAndCountAll({ where, limit: pageSize, offset, order: [['id','ASC']] });
+
+    if (!rows || rows.length === 0) {
       const msg = formatResponseWithOptions(`❌ No diagnostic tests found${parameters.testType ? ` for "${parameters.testType}"` : ''}. Please try a different search or type 'help' for more options.`, isLoggedIn);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
 
-    // Store search results in session
-    session.data.diagnosticTestResults = tests;
+    const totalPages = Math.max(1, Math.ceil(count / pageSize));
+    session.data.diagnosticTestPagination = { currentPage: page, totalPages, pageSize };
+    session.data.diagnosticTestPageItems = rows;
+    session.data.lastDiagnosticSearch = { testType: parameters.testType || null };
     await session.save();
 
-    // Format response
-    let response = `🔬 *Available Diagnostic Tests:*\n\n`;
-    tests.forEach((test, index) => {
-      response += `${index + 1}. *${test.name}* - ₦${test.price}\n`;
-      response += `   Category: ${test.category}\n`;
-      response += `   Sample: ${test.sampleType || 'N/A'} | Time: ${test.resultTime || 'N/A'}\n`;
-      if (test.description) response += `   ${test.description}\n`;
-      response += `\n`;
+    const msg = buildPaginatedListMessage(rows, page, totalPages, '🔬 Diagnostic Tests', (test) => {
+      let s = `${test.name} - ₦${test.price}`;
+      s += `\n   Category: ${test.category}`;
+      s += `\n   Sample: ${test.sampleType || 'N/A'} | Time: ${test.resultTime || 'N/A'}`;
+      if (test.description) s += `\n   ${test.description}`;
+      return s;
     });
 
-    response += `Reply with the test number to book (e.g., "1" for the first test).`;
-    const msgWithOptions = formatResponseWithOptions(response, isLoggedIn);
-    await sendWhatsAppMessage(phoneNumber, msgWithOptions);
+    await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
   } catch (error) {
     console.error('Error searching diagnostic tests:', error);
-    const msg = formatResponseWithOptions("❌ Error retrieving diagnostic tests. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("❌ Error retrieving diagnostic tests. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2448,56 +2521,47 @@ const handleDiagnosticTestSearch = async (phoneNumber, session, parameters) => {
 const handleHealthcareProductBrowse = async (phoneNumber, session, parameters) => {
   try {
     const { HealthcareProduct } = require('./models');
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
-    let products;
+    const page = parseInt(parameters.page || '1', 10) || 1;
+    const pageSize = 5;
+    const where = { isActive: true };
+
     if (parameters.category) {
-      // Search for specific category
-      products = await HealthcareProduct.findAll({
-        where: {
-          [sequelize.Op.or]: [
-            { name: { [sequelize.Op.iLike]: `%${parameters.category}%` } },
-            { category: { [sequelize.Op.iLike]: `%${parameters.category}%` } }
-          ],
-          isActive: true
-        },
-        limit: 10
-      });
-    } else {
-      // Get all available products
-      products = await HealthcareProduct.findAll({
-        where: { isActive: true },
-        limit: 10
-      });
+      where[sequelize.Op.or] = [
+        { name: { [sequelize.Op.iLike]: `%${parameters.category}%` } },
+        { category: { [sequelize.Op.iLike]: `%${parameters.category}%` } }
+      ];
     }
 
-    if (products.length === 0) {
+    const offset = (page - 1) * pageSize;
+    const { rows, count } = await HealthcareProduct.findAndCountAll({ where, limit: pageSize, offset, order: [['id','ASC']] });
+
+    if (!rows || rows.length === 0) {
       const msg = formatResponseWithOptions(`❌ No healthcare products found${parameters.category ? ` in "${parameters.category}"` : ''}. Please try a different search or type 'help' for more options.`, isLoggedIn);
       await sendWhatsAppMessage(phoneNumber, msg);
       return;
     }
 
-    // Store search results in session
-    session.data.healthcareProductResults = products;
+    const totalPages = Math.max(1, Math.ceil(count / pageSize));
+    session.data.healthcareProductPagination = { currentPage: page, totalPages, pageSize };
+    session.data.healthcareProductPageItems = rows;
+    session.data.lastHealthcareProductSearch = { category: parameters.category || null };
     await session.save();
 
-    // Format response
-    let response = `🛒 *Available Healthcare Products:*\n\n`;
-    products.forEach((product, index) => {
-      response += `${index + 1}. *${product.name}* - ₦${product.price}\n`;
-      response += `   Category: ${product.category}${product.brand ? ` | Brand: ${product.brand}` : ''}\n`;
-      response += `   Stock: ${product.stock > 0 ? product.stock + ' units' : 'Out of stock'}\n`;
-      if (product.description) response += `   ${product.description}\n`;
-      if (product.usage) response += `   Usage: ${product.usage}\n`;
-      response += `\n`;
+    const msg = buildPaginatedListMessage(rows, page, totalPages, '🛒 Healthcare Products', (product) => {
+      let s = `${product.name} - ₦${product.price}`;
+      s += `\n   Category: ${product.category}${product.brand ? ` | Brand: ${product.brand}` : ''}`;
+      s += `\n   Stock: ${product.stock > 0 ? product.stock + ' units' : 'Out of stock'}`;
+      if (product.description) s += `\n   ${product.description}`;
+      if (product.usage) s += `\n   Usage: ${product.usage}`;
+      return s;
     });
 
-    response += `Reply with the product number to add to cart (e.g., "1" for the first product).`;
-    const msgWithOptions = formatResponseWithOptions(response, isLoggedIn);
-    await sendWhatsAppMessage(phoneNumber, msgWithOptions);
+    await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
   } catch (error) {
     console.error('Error browsing healthcare products:', error);
-    const msg = formatResponseWithOptions("❌ Error retrieving healthcare products. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("❌ Error retrieving healthcare products. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
