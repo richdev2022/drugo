@@ -1248,16 +1248,8 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
 
   // Pagination navigation for products list
   if (session.data && session.data.productPagination) {
-    const nav = messageText.trim().toLowerCase();
     const { currentPage, totalPages, pageSize } = session.data.productPagination;
-    let targetPage = null;
-    if (nav === 'next' && currentPage < totalPages) targetPage = currentPage + 1;
-    if (nav === 'previous' && currentPage > 1) targetPage = currentPage - 1;
-    const numMatch = messageText.trim().match(/^\d+$/);
-    if (!targetPage && numMatch) {
-      const n = parseInt(numMatch[0], 10);
-      if (n >= 1 && n <= totalPages) targetPage = n;
-    }
+    const targetPage = parseNavigationCommand(messageText, currentPage, totalPages);
     if (targetPage) {
       const pageData = await listAllProductsPaginated(targetPage, pageSize);
       session.data.productPagination = {
@@ -1268,7 +1260,13 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
       session.data.productPageItems = pageData.items;
       await session.save();
       const isLoggedIn = isAuthenticatedSession(session);
-      const msg = buildProductListMessage(pageData.items, pageData.page, pageData.totalPages);
+      const msg = buildPaginatedListMessage(pageData.items, pageData.page, pageData.totalPages, '📦 Medicines', (product) => {
+        let s = `${product.name}`;
+        if (product.price) s += `\n   Price: ₦${product.price}`;
+        if (product.category) s += `\n   Category: ${product.category}`;
+        if (product.imageUrl) s += `\n   Image: ${product.imageUrl}`;
+        return s;
+      });
       await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
       return;
     }
