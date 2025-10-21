@@ -2141,16 +2141,26 @@ const handleSupportRequest = async (phoneNumber, session, parameters) => {
 // Handle resend OTP
 const handleResendOTP = async (phoneNumber, session) => {
   try {
-    const registrationData = session.data && session.data.registrationData;
+    // Reload session to ensure we have the latest data
+    const freshSession = await sequelize.models.Session.findOne({
+      where: { phoneNumber }
+    });
+
+    let registrationData = (freshSession && freshSession.data && freshSession.data.registrationData) || (session.data && session.data.registrationData);
 
     if (!registrationData || !registrationData.email) {
       const msg = formatResponseWithOptions("❌ No active registration found. Please start over by typing 'register'.", false);
       await sendWhatsAppMessage(phoneNumber, msg);
-      session.data.waitingForOTPVerification = false;
-      session.data.registrationData = null;
-      await session.save();
+      if (freshSession) {
+        freshSession.data.waitingForOTPVerification = false;
+        freshSession.data.registrationData = null;
+        await freshSession.save();
+      }
       return;
     }
+
+    // Update session reference to use fresh session for subsequent saves
+    session = freshSession || session;
 
     const { OTP } = require('./models');
     const { generateOTP, getOTPExpiry } = require('./utils/otp');
