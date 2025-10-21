@@ -1266,7 +1266,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
       };
       session.data.productPageItems = pageData.items;
       await session.save();
-      const isLoggedIn = session.state === 'LOGGED_IN';
+      const isLoggedIn = isAuthenticatedSession(session);
       const msg = buildProductListMessage(pageData.items, pageData.page, pageData.totalPages);
       await sendWhatsAppMessage(phoneNumber, formatResponseWithOptions(msg, isLoggedIn));
       return;
@@ -1297,7 +1297,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
 
   // Process with NLP
   console.log(`🤖 Processing with NLP...`);
-  const isLoggedIn = session.state === 'LOGGED_IN';
+  const isLoggedIn = isAuthenticatedSession(session);
   const nlpResult = await processMessage(messageText, phoneNumber, session);
   const { intent, parameters, fulfillmentText } = nlpResult;
   console.log(`✨ NLP Result: intent="${intent}", source="${nlpResult.source}", confidence=${nlpResult.confidence}`);
@@ -1745,7 +1745,7 @@ const handleLogin = async (phoneNumber, session, parameters) => {
 // Handle product search
 const handleProductSearch = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     // If no specific query, list all medicines with pagination first
     if (!parameters.product) {
@@ -1800,7 +1800,7 @@ const handleProductSearch = async (phoneNumber, session, parameters) => {
 // Handle add to cart
 const handleAddToCart = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!session.data.userId) {
       const msg = formatResponseWithOptions("Please login first to add items to your cart. Type 'login' to proceed.", isLoggedIn);
@@ -1838,7 +1838,7 @@ const handleAddToCart = async (phoneNumber, session, parameters) => {
 // Handle place order
 const handlePlaceOrder = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!session.data.userId) {
       const msg = formatResponseWithOptions("Please login first to place an order. Type 'login' to proceed.", isLoggedIn);
@@ -1955,7 +1955,7 @@ const buildProductListMessage = (items, page, totalPages) => {
 // Handle track order
 const handleTrackOrder = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!parameters.orderId) {
       const msg = formatResponseWithOptions("📍 To track your order, provide the order ID.\n\nExample: 'track 12345'", isLoggedIn);
@@ -2010,7 +2010,7 @@ const handleTrackOrder = async (phoneNumber, session, parameters) => {
 // Handle doctor search
 const handleDoctorSearch = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!parameters.specialty) {
       const msg = formatResponseWithOptions("What type of doctor are you looking for? Please provide a specialty (e.g., Cardiologist, Pediatrician).", isLoggedIn);
@@ -2054,7 +2054,7 @@ const handleDoctorSearch = async (phoneNumber, session, parameters) => {
 // Handle book appointment
 const handleBookAppointment = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!session.data.userId) {
       const msg = formatResponseWithOptions("Please login first to book an appointment. Type 'login' to proceed.", isLoggedIn);
@@ -2098,7 +2098,7 @@ const handleBookAppointment = async (phoneNumber, session, parameters) => {
 // Handle payment
 const handlePayment = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     if (!session.data.userId) {
       const msg = formatResponseWithOptions("Please login first to make a payment. Type 'login' to proceed.", isLoggedIn);
@@ -2173,7 +2173,7 @@ Simply reply with a number (1-7) or describe what you need!`;
 // Handle support request
 const handleSupportRequest = async (phoneNumber, session, parameters) => {
   try {
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
     const supportRole = parameters.supportType || 'general';
     await startSupportChat(phoneNumber, supportRole);
 
@@ -2436,7 +2436,7 @@ const handleRegistrationOTPVerification = async (phoneNumber, session, otpCode) 
 const handleDiagnosticTestSearch = async (phoneNumber, session, parameters) => {
   try {
     const { DiagnosticTest } = require('./models');
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     let tests;
     if (parameters.testType) {
@@ -2493,7 +2493,7 @@ const handleDiagnosticTestSearch = async (phoneNumber, session, parameters) => {
 const handleHealthcareProductBrowse = async (phoneNumber, session, parameters) => {
   try {
     const { HealthcareProduct } = require('./models');
-    const isLoggedIn = session.state === 'LOGGED_IN';
+    const isLoggedIn = isAuthenticatedSession(session);
 
     let products;
     if (parameters.category) {
