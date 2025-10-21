@@ -494,6 +494,36 @@ const handleHealthcareProductIntent = (message) => {
 };
 
 const extractIntentFromMessage = (lowerMessage) => {
+  // Extract keywords from message
+  const foundKeywords = extractKeywords(lowerMessage);
+
+  // Determine intent based on found keywords
+  if (foundKeywords.products.length > 0) {
+    const productName = lowerMessage.split(/\s+/).filter(word =>
+      foundKeywords.products.includes(word)
+    ).join(' ');
+    return createResponse('search_products', { product: productName || undefined });
+  }
+
+  if (foundKeywords.doctors.length > 0) {
+    return createResponse('search_doctors', {});
+  }
+
+  if (foundKeywords.appointments.length > 0) {
+    return createResponse('book_appointment', {});
+  }
+
+  if (foundKeywords.orders.length > 0) {
+    return createResponse('place_order', {});
+  }
+
+  if (foundKeywords.tracking.length > 0) {
+    // Try to extract order ID
+    const numMatch = lowerMessage.match(/\d+/);
+    return createResponse('track_order', { orderId: numMatch ? numMatch[0] : undefined });
+  }
+
+  // Fallback: use pattern matching for additional context
   const keywords = [
     {
       patterns: [/medicine|drug|pharmacy|health|medicinal/],
