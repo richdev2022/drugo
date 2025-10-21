@@ -1155,7 +1155,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
     });
 
     if (!session) {
-      console.log(`📝 Creating new session for ${phoneNumber}`);
+      console.log(`�� Creating new session for ${phoneNumber}`);
       session = await sequelize.models.Session.create({
         phoneNumber,
         state: 'NEW',
@@ -1213,7 +1213,7 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
       }
       return;
     } else {
-      await sendWhatsAppMessage(phoneNumber, 'No prescription file is pending.\n\nPlease send an image or PDF of your prescription first. Supported types: JPG, PNG, WEBP, GIF, PDF.\n\nTip: Add a caption with your Order ID to auto-attach, e.g. rx 12345 (also accepts "order 12345" or "prescription 12345"). If you don’t know your Order ID, check your order confirmation message or type "support" for help.');
+      await sendWhatsAppMessage(phoneNumber, 'No prescription file is pending.\n\nPlease send an image or PDF of your prescription first. Supported types: JPG, PNG, WEBP, GIF, PDF.\n\nTip: Add a caption with your Order ID to auto-attach, e.g. rx 12345 (also accepts "order 12345" or "prescription 12345"). If you don��t know your Order ID, check your order confirmation message or type "support" for help.');
       return;
     }
   }
@@ -1624,8 +1624,12 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
         console.error('Error in OTP generation/verification setup:', error);
         const errorMsg = formatResponseWithOptions(`❌ Failed to process registration. Please try again later or contact support.`, false);
         await sendWhatsAppMessage(phoneNumber, errorMsg);
-        session.data.registrationData = null;
-        session.data.waitingForOTPVerification = false;
+        session.data = {
+          ...session.data,
+          registrationData: null,
+          waitingForOTPVerification: false
+        };
+        session.changed('data', true);
         await session.save();
       }
     } else {
