@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Drugo — Payment Result</title>
+    <link rel="icon" href="https://cdn.builder.io/api/v1/image/assets%2F89edfb014b264aa1be87a238c6cee9b8%2Feca24978b49246d5ade23b106d240dc8?format=webp&width=800" />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/vercel_pages/styles.css">
+  </head>
+  <body>
+    <main class="callback-container">
+      <header class="callback-header">
+        <img class="callback-logo" src="https://cdn.builder.io/api/v1/image/assets%2F89edfb014b264aa1be87a238c6cee9b8%2Feca24978b49246d5ade23b106d240dc8?format=webp&width=800" alt="Drugs.ng logo">
+      </header>
+
+      <section class="callback-card">
+        <h1 id="result-title" class="result-title">Processing Payment...</h1>
+        <p id="result-message" class="result-message">Please wait while we verify your payment result.</p>
+
+        <div class="result-meta" id="result-meta" aria-live="polite"></div>
+
+        <div class="result-actions">
+          <button id="close-cta" class="cta-primary">Close and Return to WhatsApp</button>
+        </div>
+      </section>
+
+      <footer class="callback-footer">
+        <p class="footer-note">If you have issues, contact support at <a href="mailto:sundayitodo500@gmail.com">sundayitodo500@gmail.com</a></p>
+      </footer>
+    </main>
+
+    <script src="/vercel_pages/script.js" defer></script>
+  </body>
+</html>
