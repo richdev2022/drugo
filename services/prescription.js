@@ -143,6 +143,12 @@ const savePrescription = async (orderId, fileUrl, extractedText = null, parsedDa
       });
     }
 
+    // Mark order as having a prescription
+    if (!order.hasPrescription) {
+      order.hasPrescription = true;
+      await order.save();
+    }
+
     return {
       success: true,
       message: 'Prescription saved successfully',
@@ -155,7 +161,7 @@ const savePrescription = async (orderId, fileUrl, extractedText = null, parsedDa
   }
 };
 
-// Upload prescription file to Cloudinary and save to database
+// Upload prescription file to Cloudinary, run OCR, and save to database
 const uploadAndSavePrescription = async (orderId, fileBuffer, filename = null) => {
   try {
     if (!orderId || !fileBuffer) {
@@ -168,14 +174,23 @@ const uploadAndSavePrescription = async (orderId, fileBuffer, filename = null) =
       throw new Error('Order not found');
     }
 
+    // Run OCR on the buffer before upload so we can attach extracted text
+    let extractedText = null;
+    try {
+      const ocr = await extractPrescriptionFromBuffer(fileBuffer);
+      extractedText = ocr?.extractedText || null;
+    } catch (ocrErr) {
+      console.warn('OCR failed for prescription upload, proceeding without OCR:', ocrErr.message);
+    }
+
     // Upload to Cloudinary
     const uploadedFile = await uploadImage(fileBuffer, {
       folder: 'drugs-ng/prescriptions',
       filename: filename || `prescription-order-${orderId}-${Date.now()}`
     });
 
-    // Save prescription record with Cloudinary URL
-    const prescription = await savePrescription(orderId, uploadedFile.url);
+    // Save prescription record with Cloudinary URL and OCR text (if any)
+    const prescription = await savePrescription(orderId, uploadedFile.url, extractedText);
 
     return {
       success: true,

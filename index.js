@@ -39,7 +39,7 @@ const {
   updateProductImage,
   getProductImageUrl
 } = require('./services/healthcareProducts');
-const { uploadAndSavePrescription, savePrescription } = require('./services/prescription');
+const { uploadAndSavePrescription, savePrescription, extractPrescriptionFromBuffer } = require('./services/prescription');
 const {
   uploadDoctorImage,
   updateDoctorImage,
@@ -54,6 +54,96 @@ const PORT = ENV.PORT || 3000;
 // Middleware
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Swagger / OpenAPI documentation setup (optional dependencies)
+let swaggerSpec = null;
+try {
+  swaggerSpec = require('./config/swagger');
+} catch (err) {
+  console.warn('Swagger spec not found or failed to load:', err.message);
+}
+
+try {
+  const swaggerUi = require('swagger-ui-express');
+  if (swaggerSpec) {
+    app.use('/api/docs/swagger.json', (req, res) => res.json(swaggerSpec));
+    app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
+    console.log('✓ Swagger UI mounted at /api/docs');
+  }
+} catch (err) {
+  console.warn('swagger-ui-express not installed. To enable docs install swagger-ui-express.');
+}
+
+// Serve a lightweight Swagger UI page using CDN as a fallback when swagger-ui-express is not installed
+if (swaggerSpec) {
+  app.get('/api/docs', (req, res) => {
+    const swaggerJsonUrl = '/api/docs/swagger.json';
+    const html = `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Drugs.ng API Docs</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css" />
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = function() {
+        const ui = SwaggerUIBundle({
+          url: '${swaggerJsonUrl}',
+          dom_id: '#swagger-ui',
+          presets: [SwaggerUIBundle.presets.apis],
+          layout: 'BaseLayout'
+        });
+        window.ui = ui;
+      };
+    </script>
+    <div style="position:fixed;right:12px;bottom:12px;z-index:9999">
+      <a href="/api/docs/postman" style="display:inline-block;padding:8px 12px;background:#0b74de;color:#fff;border-radius:6px;text-decoration:none;font-weight:600">Download Postman Collection</a>
+    </div>
+  </body>
+</html>`;
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  });
+}
+
+// Postman collection download endpoint (converts OpenAPI to Postman v2.1 if converter is available)
+app.get('/api/docs/postman', async (req, res) => {
+  try {
+    if (!swaggerSpec) return res.status(404).json({ success: false, message: 'Swagger spec not available' });
+    const converter = (() => {
+      try { return require('openapi-to-postmanv2'); } catch (e) { return null; }
+    })();
+
+    if (!converter) {
+      // Fallback: return OpenAPI JSON for manual conversion
+      res.setHeader('Content-Disposition', 'attachment; filename="openapi.json"');
+      return res.json(swaggerSpec);
+    }
+
+    // Use converter to convert to Postman collection
+    const openapi = swaggerSpec;
+    converter.convert({ type: 'json', data: openapi }, {}, (err, conversionResult) => {
+      if (err || !conversionResult) {
+        console.error('OpenAPI -> Postman conversion failed:', err || conversionResult);
+        return res.status(500).json({ success: false, message: 'Conversion failed' });
+      }
+      if (!conversionResult.result || conversionResult.result.collection === undefined) {
+        return res.status(500).json({ success: false, message: 'Conversion returned invalid result' });
+      }
+      const collection = conversionResult.output[0].data;
+      res.setHeader('Content-Disposition', 'attachment; filename="postman_collection.json"');
+      res.setHeader('Content-Type', 'application/json');
+      res.send(JSON.stringify(collection, null, 2));
+    });
+  } catch (error) {
+    console.error('Error generating Postman collection:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 // Initialize database and then start server
 async function startServer() {
@@ -171,10 +261,24 @@ app.post('/api/admin/staff', adminAuthMiddleware, async (req, res) => {
   }
 });
 
+// Export endpoint must come before generic :table route
+app.get('/api/admin/:table/export', adminAuthMiddleware, async (req, res) => {
+  try {
+    const table = req.params.table;
+    const result = await adminService.exportTable(table, req.query, req.admin);
+    res.setHeader('Content-Type', result.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.send(result.payload);
+  } catch (error) {
+    console.error('Admin export table error:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
 app.get('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
   try {
     const table = req.params.table;
-    const result = await adminService.fetchTable(table, req.query);
+    const result = await adminService.fetchTable(table, req.query, req.admin);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('Admin fetch table error:', error.message);
@@ -185,7 +289,7 @@ app.get('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
 app.post('/api/admin/:table', adminAuthMiddleware, async (req, res) => {
   try {
     const table = req.params.table;
-    const created = await adminService.addRecord(table, req.body);
+    const created = await adminService.addRecord(table, req.body, req.admin);
     res.json({ success: true, data: created });
   } catch (error) {
     console.error('Admin add record error:', error.message);
@@ -197,7 +301,7 @@ app.put('/api/admin/:table/:id', adminAuthMiddleware, async (req, res) => {
   try {
     const table = req.params.table;
     const id = req.params.id;
-    const updated = await adminService.updateRecord(table, id, req.body);
+    const updated = await adminService.updateRecord(table, id, req.body, req.admin);
     res.json({ success: true, data: updated });
   } catch (error) {
     console.error('Admin update record error:', error.message);
@@ -209,7 +313,7 @@ app.delete('/api/admin/:table/:id', adminAuthMiddleware, async (req, res) => {
   try {
     const table = req.params.table;
     const id = req.params.id;
-    const result = await adminService.deleteRecord(table, id);
+    const result = await adminService.deleteRecord(table, id, req.admin);
     res.json(result);
   } catch (error) {
     console.error('Admin delete record error:', error.message);
@@ -344,13 +448,22 @@ app.post('/webhook', async (req, res) => {
                     resourceType: 'auto'
                   });
 
+                  // Run OCR to extract text from the uploaded file buffer (best-effort)
+                  let extractedText = null;
+                  try {
+                    const ocr = await extractPrescriptionFromBuffer(buffer);
+                    extractedText = ocr?.extractedText || null;
+                  } catch (ocrErr) {
+                    console.warn('OCR failed on incoming media:', ocrErr.message);
+                  }
+
                   // Try to get order ID from caption like: "rx 123", "order 123", "prescription 123"
                   const match = caption && caption.match(/(?:rx|order|prescription)\s*#?(\d+)/i);
 
                   if (match && match[1]) {
                     const orderId = match[1];
                     try {
-                      const result = await savePrescription(orderId, uploadResult.url);
+                      const result = await savePrescription(orderId, uploadResult.url, extractedText);
                       await sendWhatsAppMessage(phoneNumber, `✅ Prescription received and attached to order #${orderId}. Status: ${result.verificationStatus || 'Pending'}.`);
                     } catch (err) {
                       console.error('Attach prescription error:', err);
@@ -364,6 +477,9 @@ app.post('/webhook', async (req, res) => {
                     }
                     session.data = session.data || {};
                     session.data.pendingPrescriptionUrl = uploadResult.url;
+                    if (extractedText) {
+                      session.data.pendingPrescriptionExtractedText = extractedText;
+                    }
                     await session.save();
 
                     await sendWhatsAppMessage(phoneNumber, '📄 Prescription received.\n\nTo attach it to an order, reply now with your Order ID.\nExample: rx 12345\n\nNext time, you can auto-attach by adding a caption to your file: \n• rx 12345\n• order 12345\n• prescription 12345\n\nWhere to find your Order ID:\n• In your order confirmation message (look for "Order ID: #12345")\n• If you know it, check status with: track 12345\n• If you can’t find it, type "support" and we’ll help link it for you.');
@@ -1019,8 +1135,9 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
     const orderId = attachMatch[1];
     if (session.data && session.data.pendingPrescriptionUrl) {
       try {
-        const result = await savePrescription(orderId, session.data.pendingPrescriptionUrl);
+        const result = await savePrescription(orderId, session.data.pendingPrescriptionUrl, session.data.pendingPrescriptionExtractedText || null);
         session.data.pendingPrescriptionUrl = null;
+        session.data.pendingPrescriptionExtractedText = null;
         await session.save();
         await sendWhatsAppMessage(phoneNumber, `✅ Prescription attached to order #${orderId}. Status: ${result.verificationStatus || 'Pending'}.`);
       } catch (err) {
@@ -1321,11 +1438,11 @@ const handleLogout = async (phoneNumber, session) => {
 const handleGreeting = async (phoneNumber, session) => {
   console.log(`👋 Handling greeting for ${phoneNumber}, session state: ${session.state}`);
   if (session.state === 'NEW') {
-    const greetingMessage = "Welcome to Drugs.ng! Your health companion in Africa. Are you a new user? Reply 'register' to sign up or 'login' if you already have an account.";
+    const greetingMessage = "Welcome to Drugs.ng! I'm Drugo — your helpful assistant. Are you a new user? Reply 'register' to sign up or 'login' if you already have an account."
     console.log(`📤 Sending new user greeting`);
     await sendWhatsAppMessage(phoneNumber, greetingMessage);
   } else {
-    const welcomeBackMessage = `Welcome back! How can I assist you today? You can ask me about medicines, doctors, orders, or type 'help' for assistance.`;
+    const welcomeBackMessage = `Welcome back! Drugo here. How can I assist you today? You can ask me about medicines, doctors, orders, or type 'help' for assistance.`;
     console.log(`📤 Sending returning user welcome`);
     await sendWhatsAppMessage(phoneNumber, welcomeBackMessage);
   }
