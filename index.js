@@ -1242,21 +1242,33 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
   }
 
   // Check if waiting for OTP verification during registration
-    if (session.data && session.data.waitingForOTPVerification) {
-      const otpMatch = messageText.match(/^\d{4}$/);
-      if (otpMatch) {
-        console.log(`🔐 Processing OTP verification`);
-        await handleRegistrationOTPVerification(phoneNumber, session, otpMatch[0]);
-        return;
-      }
-    }
+  // This must bypass NLP to prevent dynamic OTP codes from being misinterpreted
+  if (session.state === 'REGISTERING' || (session.data && session.data.waitingForOTPVerification)) {
+    const otpMatch = messageText.trim().match(/^\d{4}$/);
+    const resendMatch = messageText.toLowerCase().trim().match(/^(resend|retry|send again)$/);
 
-    // Process with NLP
-    console.log(`🤖 Processing with NLP...`);
-    const isLoggedIn = session.state === 'LOGGED_IN';
-    const nlpResult = await processMessage(messageText, phoneNumber, session);
-    const { intent, parameters, fulfillmentText } = nlpResult;
-    console.log(`✨ NLP Result: intent="${intent}", source="${nlpResult.source}", confidence=${nlpResult.confidence}`);
+    if (otpMatch) {
+      console.log(`🔐 Processing OTP verification with code: ${otpMatch[0]}`);
+      await handleRegistrationOTPVerification(phoneNumber, session, otpMatch[0]);
+      return;
+    } else if (resendMatch) {
+      console.log(`🔄 Processing OTP resend request`);
+      await handleResendOTP(phoneNumber, session);
+      return;
+    } else if (session.state === 'REGISTERING' && session.data && session.data.waitingForOTPVerification) {
+      // User is in REGISTERING state but entered invalid input
+      const errorMsg = formatResponseWithOptions("❌ Please enter your 4-digit OTP code. If you need to resend the OTP, type 'resend'.", false);
+      await sendWhatsAppMessage(phoneNumber, errorMsg);
+      return;
+    }
+  }
+
+  // Process with NLP
+  console.log(`🤖 Processing with NLP...`);
+  const isLoggedIn = session.state === 'LOGGED_IN';
+  const nlpResult = await processMessage(messageText, phoneNumber, session);
+  const { intent, parameters, fulfillmentText } = nlpResult;
+  console.log(`✨ NLP Result: intent="${intent}", source="${nlpResult.source}", confidence=${nlpResult.confidence}`);
 
     // Handle different intents
     console.log(`🎯 Handling intent: ${intent}`);
