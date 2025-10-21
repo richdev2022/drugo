@@ -74,6 +74,42 @@ try {
   console.warn('swagger-ui-express not installed. To enable docs install swagger-ui-express.');
 }
 
+// Serve a lightweight Swagger UI page using CDN as a fallback when swagger-ui-express is not installed
+if (swaggerSpec) {
+  app.get('/api/docs', (req, res) => {
+    const swaggerJsonUrl = '/api/docs/swagger.json';
+    const html = `<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Drugs.ng API Docs</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@4/swagger-ui.css" />
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@4/swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = function() {
+        const ui = SwaggerUIBundle({
+          url: '${swaggerJsonUrl}',
+          dom_id: '#swagger-ui',
+          presets: [SwaggerUIBundle.presets.apis],
+          layout: 'BaseLayout'
+        });
+        window.ui = ui;
+      };
+    </script>
+    <div style="position:fixed;right:12px;bottom:12px;z-index:9999">
+      <a href="/api/docs/postman" style="display:inline-block;padding:8px 12px;background:#0b74de;color:#fff;border-radius:6px;text-decoration:none;font-weight:600">Download Postman Collection</a>
+    </div>
+  </body>
+</html>`;
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  });
+}
+
 // Postman collection download endpoint (converts OpenAPI to Postman v2.1 if converter is available)
 app.get('/api/docs/postman', async (req, res) => {
   try {
@@ -428,7 +464,7 @@ app.post('/webhook', async (req, res) => {
                     const orderId = match[1];
                     try {
                       const result = await savePrescription(orderId, uploadResult.url, extractedText);
-                      await sendWhatsAppMessage(phoneNumber, `��� Prescription received and attached to order #${orderId}. Status: ${result.verificationStatus || 'Pending'}.`);
+                      await sendWhatsAppMessage(phoneNumber, `✅ Prescription received and attached to order #${orderId}. Status: ${result.verificationStatus || 'Pending'}.`);
                     } catch (err) {
                       console.error('Attach prescription error:', err);
                       await sendWhatsAppMessage(phoneNumber, `Prescription uploaded but could not attach to order #${orderId}: ${err.message}. You can link it later by replying: rx ${orderId}`);
