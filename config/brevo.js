@@ -1,23 +1,41 @@
 let brevoSDK = null;
 let transactionalEmailApi = null;
+let BrevoClient = null;
+
+// Support both 'brevo' package and 'sib-api-v3-sdk' (official Brevo SDK name) as a fallback
 try {
   brevoSDK = require('brevo');
+  BrevoClient = brevoSDK;
   const brevoClient = new brevoSDK.ApiClient();
   brevoClient.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
   transactionalEmailApi = new brevoSDK.TransactionalEmailsApi();
-} catch (err) {
-  console.warn('Brevo SDK not available; email sending disabled:', err.message);
+  console.log('✓ Brevo SDK (brevo) loaded');
+} catch (err1) {
+  try {
+    // try official package name
+    const SibApi = require('sib-api-v3-sdk');
+    BrevoClient = SibApi;
+    const client = SibApi.ApiClient.instance;
+    const apiKey = client.authentications['api-key'];
+    apiKey.apiKey = process.env.BREVO_API_KEY;
+    transactionalEmailApi = new SibApi.TransactionalEmailsApi();
+    brevoSDK = SibApi; // alias for SendSmtpEmail class access
+    console.log('✓ Brevo SDK (sib-api-v3-sdk) loaded');
+  } catch (err2) {
+    console.warn('Brevo SDK not available; email sending disabled:', err1.message);
+  }
 }
 
 // Send OTP email
 const sendOTPEmail = async (email, otp, recipientName = 'User') => {
-  if (!transactionalEmailApi) {
+  if (!transactionalEmailApi || !brevoSDK) {
     console.warn(`Skipping sendOTPEmail to ${email} - Brevo not configured`);
     return { success: true, message: 'Email sending disabled (dev mode)' };
   }
 
   try {
-    const sendSmtpEmail = new brevoSDK.SendSmtpEmail();
+    const SendSmtpEmail = brevoSDK.SendSmtpEmail || brevoSDK.SendSmtpEmail;
+    const sendSmtpEmail = new SendSmtpEmail();
     sendSmtpEmail.subject = 'Your OTP for Drugs.ng Verification';
     sendSmtpEmail.htmlContent = `
       <!DOCTYPE html>
@@ -62,7 +80,7 @@ const sendOTPEmail = async (email, otp, recipientName = 'User') => {
     sendSmtpEmail.to = [{ email: email, name: recipientName }];
 
     const response = await transactionalEmailApi.sendTransacEmail(sendSmtpEmail);
-    console.log(`✉️  OTP email sent to ${email}. Message ID: ${response.messageId}`);
+    console.log(`✉️  OTP email sent to ${email}. Message ID: ${response.messageId || response.messageId}`);
     return { success: true, messageId: response.messageId };
   } catch (error) {
     console.error('Error sending OTP email via Brevo:', error);
