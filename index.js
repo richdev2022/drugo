@@ -1579,11 +1579,22 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
         const otp = generateOTP();
         const expiresAt = getOTPExpiry();
 
+        const { encryptData } = require('./services/security');
+        const encryptedRegistration = (() => {
+          try {
+            return encryptData({ name: userData.name, email: userData.email, password: userData.password, phoneNumber: userData.phoneNumber }).encryptedData;
+          } catch (e) {
+            console.warn('Failed to encrypt registration snapshot for OTP meta:', e.message);
+            return null;
+          }
+        })();
+
         await OTP.create({
           email: userData.email,
           code: otp,
           purpose: 'registration',
-          expiresAt: expiresAt
+          expiresAt: expiresAt,
+          meta: encryptedRegistration ? { registrationData: encryptedRegistration } : null
         });
 
         // Try to send OTP email
