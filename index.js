@@ -1680,7 +1680,7 @@ const handleRegistration = async (phoneNumber, session, parameters) => {
       await sendWhatsAppMessage(phoneNumber, msgWithOptions);
     }
   } else {
-    const msg = formatResponseWithOptions("You're already registered. Type 'help' to see available services.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("You're already registered. Type 'help' to see available services.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -1792,7 +1792,7 @@ const handleProductSearch = async (phoneNumber, session, parameters) => {
     await sendWhatsAppMessage(phoneNumber, msgWithOptions);
   } catch (error) {
     console.error('Error searching products:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while searching for products. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while searching for products. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -1830,7 +1830,7 @@ const handleAddToCart = async (phoneNumber, session, parameters) => {
     await sendWhatsAppMessage(phoneNumber, successMsg);
   } catch (error) {
     console.error('Error adding to cart:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while adding to your cart. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while adding to your cart. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2002,7 +2002,7 @@ const handleTrackOrder = async (phoneNumber, session, parameters) => {
   } catch (error) {
     console.error('Error tracking order:', error);
     const errorMessage = handleApiError(error, 'track_order').message;
-    const msg = formatResponseWithOptions(`❌ ${errorMessage}`, session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions(`❌ ${errorMessage}`, isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2046,7 +2046,7 @@ const handleDoctorSearch = async (phoneNumber, session, parameters) => {
     await sendWhatsAppMessage(phoneNumber, msgWithOptions);
   } catch (error) {
     console.error('Error searching doctors:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while searching for doctors. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while searching for doctors. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2090,7 +2090,7 @@ const handleBookAppointment = async (phoneNumber, session, parameters) => {
     await sendWhatsAppMessage(phoneNumber, successMsg);
   } catch (error) {
     console.error('Error booking appointment:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while booking your appointment. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while booking your appointment. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2147,7 +2147,7 @@ const handlePayment = async (phoneNumber, session, parameters) => {
     }
   } catch (error) {
     console.error('Error processing payment:', error);
-    const msg = formatResponseWithOptions("Sorry, we encountered an error while processing your payment. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Sorry, we encountered an error while processing your payment. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2187,7 +2187,7 @@ const handleSupportRequest = async (phoneNumber, session, parameters) => {
       session.supportTeamId = null;
       await session.save();
     } catch (_) {}
-    const msg = formatResponseWithOptions("Support is currently unavailable. You are back with the bot. Type 'help' for menu.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("Support is currently unavailable. You are back with the bot. Type 'help' for menu.", isAuthenticatedSession(session));
     try { await sendWhatsAppMessage(phoneNumber, msg); } catch (_) {}
   }
 };
@@ -2484,7 +2484,7 @@ const handleDiagnosticTestSearch = async (phoneNumber, session, parameters) => {
     await sendWhatsAppMessage(phoneNumber, msgWithOptions);
   } catch (error) {
     console.error('Error searching diagnostic tests:', error);
-    const msg = formatResponseWithOptions("❌ Error retrieving diagnostic tests. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("❌ Error retrieving diagnostic tests. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
@@ -2542,7 +2542,7 @@ const handleHealthcareProductBrowse = async (phoneNumber, session, parameters) =
     await sendWhatsAppMessage(phoneNumber, msgWithOptions);
   } catch (error) {
     console.error('Error browsing healthcare products:', error);
-    const msg = formatResponseWithOptions("❌ Error retrieving healthcare products. Please try again later.", session.state === 'LOGGED_IN');
+    const msg = formatResponseWithOptions("❌ Error retrieving healthcare products. Please try again later.", isAuthenticatedSession(session));
     await sendWhatsAppMessage(phoneNumber, msg);
   }
 };
