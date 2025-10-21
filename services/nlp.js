@@ -381,10 +381,10 @@ const handlePlaceOrderIntent = (message) => {
 
 const handleTrackOrderIntent = (message) => {
   const parameters = {};
-  const numbers = message.match(/\d+/g);
-
-  if (numbers && numbers.length > 0) {
-    parameters.orderId = numbers[0];
+  // Try robust parsing for order id (supports: "rx 123", txRef like drugsng-12345-..., or plain numeric id)
+  const parsed = parseOrderIdFromText(message);
+  if (parsed) {
+    parameters.orderId = parsed;
   }
 
   return createResponse('track_order', parameters);
