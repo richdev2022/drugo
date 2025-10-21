@@ -1677,8 +1677,12 @@ const handleLogin = async (phoneNumber, session, parameters) => {
 
         // Update session
         session.state = 'LOGGED_IN';
-        session.data.userId = result.userId;
-        session.data.token = result.token;
+        session.data = {
+          ...session.data,
+          userId: result.userId,
+          token: result.token
+        };
+        session.changed('data', true);
         await session.save();
 
         const successMsg = formatResponseWithOptions(`✅ Login successful! Welcome back to Drugs.ng. Type 'help' to see what you can do.`, true);
