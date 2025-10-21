@@ -1,13 +1,21 @@
-const brevoSDK = require('brevo');
-
-// Initialize Brevo client with API key
-const brevoClient = new brevoSDK.ApiClient();
-brevoClient.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
-
-const transactionalEmailApi = new brevoSDK.TransactionalEmailsApi();
+let brevoSDK = null;
+let transactionalEmailApi = null;
+try {
+  brevoSDK = require('brevo');
+  const brevoClient = new brevoSDK.ApiClient();
+  brevoClient.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
+  transactionalEmailApi = new brevoSDK.TransactionalEmailsApi();
+} catch (err) {
+  console.warn('Brevo SDK not available; email sending disabled:', err.message);
+}
 
 // Send OTP email
 const sendOTPEmail = async (email, otp, recipientName = 'User') => {
+  if (!transactionalEmailApi) {
+    console.warn(`Skipping sendOTPEmail to ${email} - Brevo not configured`);
+    return { success: true, message: 'Email sending disabled (dev mode)' };
+  }
+
   try {
     const sendSmtpEmail = new brevoSDK.SendSmtpEmail();
     sendSmtpEmail.subject = 'Your OTP for Drugs.ng Verification';
@@ -51,10 +59,7 @@ const sendOTPEmail = async (email, otp, recipientName = 'User') => {
       name: 'Drugs.ng',
       email: process.env.BREVO_SENDER_EMAIL || 'noreply@drugs.ng'
     };
-    sendSmtpEmail.to = [{
-      email: email,
-      name: recipientName
-    }];
+    sendSmtpEmail.to = [{ email: email, name: recipientName }];
 
     const response = await transactionalEmailApi.sendTransacEmail(sendSmtpEmail);
     console.log(`✉️  OTP email sent to ${email}. Message ID: ${response.messageId}`);
