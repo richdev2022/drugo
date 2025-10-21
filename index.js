@@ -1165,6 +1165,11 @@ const handleCustomerMessage = async (phoneNumber, messageText) => {
       console.log(`📝 Found existing session for ${phoneNumber}, state: ${session.state}`);
     }
 
+    // Ensure session.data is always an object (handle JSONB null values)
+    if (!session.data || typeof session.data !== 'object') {
+      session.data = {};
+    }
+
     // Update last activity
     session.lastActivity = new Date();
     await session.save();
@@ -1934,7 +1939,7 @@ const handleTrackOrder = async (phoneNumber, session, parameters) => {
     message += `*Items:*\n`;
     if (orderDetails.items && orderDetails.items.length > 0) {
       orderDetails.items.forEach(item => {
-        message += `• ${item.name} x${item.quantity} = ₦${(item.price * item.quantity).toLocaleString()}\n`;
+        message += `• ${item.name} x${item.quantity} = ���${(item.price * item.quantity).toLocaleString()}\n`;
       });
     } else {
       message += `• No items found\n`;
