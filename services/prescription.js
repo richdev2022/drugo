@@ -348,6 +348,7 @@ module.exports = {
   getPrescription,
   verifyPrescription,
   getPendingPrescriptions,
+  getPendingPrescriptionsPaginated,
   terminateOCRWorker,
   initializeOCRWorker
 };
