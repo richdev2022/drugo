@@ -9,6 +9,7 @@ const { sequelize, initializeDatabase } = require('./models');
 const { sendWhatsAppMessage, markMessageAsRead, getMediaInfo, downloadMedia, isPermissionError } = require('./config/whatsapp');
 const adminService = require('./services/admin');
 const { processMessage, formatResponseWithOptions } = require('./services/nlp');
+const { parseNavigationCommand, buildPaginatedListMessage } = require('./utils/pagination');
 const {
   registerUser,
   loginUser,
